@@ -1,0 +1,8 @@
+<project toolsVersion="5.0">
+    <dependency name="path-tracing-sdk-media" linkPath="../media" >
+        <package name="path-tracing-sdk-media" version="20230319" />
+    </dependency>
+  <dependency name="nvapi" linkPath="../external/NVAPI">
+    <package name="nvapi" version="r520-developer-windows-x86_64" platforms="windows-x86_64" />
+  </dependency>
+</project>

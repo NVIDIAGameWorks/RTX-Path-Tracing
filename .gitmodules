@@ -1,0 +1,13 @@
+[submodule "external/RayTracingDenoiser"]
+	path = external/RayTracingDenoiser
+	url = https://github.com/NVIDIAGameWorks/RayTracingDenoiser.git
+[submodule "external/Opacity-MicroMap-SDK"]
+	path = external/Opacity-MicroMap-SDK
+	url = https://github.com/NVIDIAGameWorks/Opacity-MicroMap-SDK.git
+[submodule "donut/nvrhi"]
+	path = donut/nvrhi
+	url = https://github.com/NVIDIAGameWorks/nvrhi.git
+[submodule "external/RTXDI"]
+	path = external/RTXDI
+	url = https://github.com/NVIDIAGameWorks/RTXDI.git
+	branch = sdk-only

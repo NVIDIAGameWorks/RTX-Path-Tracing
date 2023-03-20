@@ -1,0 +1,11 @@
+bin/
+build*/
+.vs
+nvapi/
+nrd.cfg
+omm.cfg
+media/
+
+# local project files for shader development outside of VS
+*.sublime-*
+compile-shaders.bat
