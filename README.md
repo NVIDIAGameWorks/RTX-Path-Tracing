@@ -6,7 +6,7 @@
 
 Path Tracing SDK is a code sample that strives to embody years of ray tracing and neural graphics research and experience. It is intended as a starting point for a path tracer integration, as a reference for various integrated SDKs, and/or for learning and experimentation.
 
-The base path tracing implementation derives from NVIDIA’s [Falcor Research Path Tracer](https://github.com/NVIDIAGameWorks/Falcor), ported to approachable C++/HLSL [Donut framework](https://github.com/NVIDIAGameWorks/donut).
+The base path tracing implementation derives from NVIDIAâ€™s [Falcor Research Path Tracer](https://github.com/NVIDIAGameWorks/Falcor), ported to approachable C++/HLSL [Donut framework](https://github.com/NVIDIAGameWorks/donut).
 
 ## Features
 
@@ -110,6 +110,10 @@ Camera can be moved using W/S/A/D keys and rotated by dragging with the left mou
 ## Developer Documentation
 
 We are working on more detailed SDK developer documentation - watch this space!
+
+## Contact
+
+Path Tracing SDK is under active development. Please report any issues directly through GitHub issue tracker, and for any information, suggestions or general requests please feel free to contact us at pathtracing-sdk-support@nvidia.com!
 
 ## License
 
