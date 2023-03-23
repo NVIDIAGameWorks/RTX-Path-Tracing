@@ -817,7 +817,7 @@ void Sample::SaveCurrentCamera()
         file << worldUp.x  << " " << worldUp.y  << " " << worldUp.z  << " " << std::endl;
 
         file << std::endl;
-        file << "below is the camera node that can be inluded into the *.scene.json;" << std::endl;
+        file << "below is the camera node that can be included into the *.scene.json;" << std::endl;
         file << "'Cameras' node goes into 'Graph' array" << std::endl;
         file << std::endl;
         file << "{"                                                             << std::endl;
