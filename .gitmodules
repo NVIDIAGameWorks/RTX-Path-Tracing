@@ -11,3 +11,6 @@
 	path = external/RTXDI
 	url = https://github.com/NVIDIAGameWorks/RTXDI.git
 	branch = sdk-only
+[submodule "external/Streamline"]
+	path = external/Streamline
+	url = https://github.com/NVIDIAGameWorks/Streamline.git
