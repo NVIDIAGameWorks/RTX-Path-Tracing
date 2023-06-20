@@ -1,12 +1,16 @@
-# Path Tracing SDK v1.0.0
+# Path Tracing SDK v1.1.0
 
 ![Title](./images/r-title.png)
+
 
 ## Overview
 
 Path Tracing SDK is a code sample that strives to embody years of ray tracing and neural graphics research and experience. It is intended as a starting point for a path tracer integration, as a reference for various integrated SDKs, and/or for learning and experimentation.
 
 The base path tracing implementation derives from NVIDIA’s [Falcor Research Path Tracer](https://github.com/NVIDIAGameWorks/Falcor), ported to approachable C++/HLSL [Donut framework](https://github.com/NVIDIAGameWorks/donut).
+
+GTC presentation [How to Build a Real-time Path Tracer](https://www.nvidia.com/gtc/session-catalog/?tab.catalogallsessionstab=16566177511100015Kus&search.industry=option_1559593201839#/session/1666651593475001NN25) provides a high level introduction to most of the features.
+
 
 ## Features
 
@@ -23,12 +27,8 @@ The base path tracing implementation derives from NVIDIA’s [Falcor Research Pa
 * [NRD](https://github.com/NVIDIAGameWorks/RayTracingDenoiser) ReLAX and ReBLUR denoiser integration with up to 3-layer path space decomposition (Stable Planes)
 * Reference mode 'photo-mode screenshot' with basic [OptiX denoiser](https://developer.nvidia.com/optix-denoiser) integration
 * Basic TAA, tone mapping, etc.
-* Streamline + DLSS integration (coming very soon)
+* Streamline + DLSS integration
 
-## Known Issues
-
-* DLSS is currently not enabled due to upgrade to Streamline 2.0; integration is work in progress
-* SER support on Vulkan is currently work in progress
 
 ## Requirements
 
@@ -37,7 +37,15 @@ The base path tracing implementation derives from NVIDIA’s [Falcor Research Pa
 - GeForce Game Ready Driver 531.18 or newer
 - DirectX 12 or Vulkan API
 - DirectX Raytracing 1.1 API, or higher
-- Visual Studio 2019 or later
+- Visual Studio 2019 or later with Windows 10 SDK version 10.0.20348.0 or later
+
+
+## Known Issues
+
+* Enabling Vulkan support requires a couple of manual steps, see [below](#building-vulkan)
+* SER support on Vulkan is currently work in progress
+* Using SER with DLSS3 Frame Generation is known to cause crashes in certain conditions. We are working on a driver update to address this.
+* Running Vulkan on AMD GPUs may trigger a TDR during TLAS building in scenes with null TLAS instances.
 
 ## Folder Structure
 
@@ -62,7 +70,7 @@ At the moment, only Windows builds are supported. We are going to add Linux supp
    
    `git clone --recursive https://github.com/NVIDIAGameWorks/Path-Tracing-SDK.git`
 
-2. Pull the media files from Packman:
+2. Pull the media and other non-git-hosted files:
    
    ```
    cd Path-Tracing-SDK
@@ -90,7 +98,17 @@ At the moment, only Windows builds are supported. We are going to add Linux supp
 
    If making a binary build, the `media` and `tools` folders can be placed into `bin` and packed up together (i.e. the sample app will search for both `media\` and `..\media\`).
 
-## User Interface
+
+## Building Vulkan
+
+Due to interaction with various included libraries, Vulkan support is not enabled by default and needs a couple of additional tweaks on the user side; please find the recommended steps below:
+ * Install Vulkan SDK (we tested with 1.3.246.1 but others will work)
+ * Set DONUT_WITH_VULKAN and NVRHI_WITH_VULKAN CMake variables to ON
+ * Disable STREAMLINE_INTEGRATION (set CMake variable to OFF)
+ * Clear CMake cache (if applicable) to make sure the correct dxc.exe path (from Vulkan SDK) is set for SPIRV compilation
+ 
+
+ ## User Interface
 
 Once the application is running, most of the SDK features can be accessed via the UI window on the left hand side and drop-down controls in the top-center. 
 
@@ -98,22 +116,25 @@ Once the application is running, most of the SDK features can be accessed via th
 
 Camera can be moved using W/S/A/D keys and rotated by dragging with the left mouse cursor.
 
+
 ## Command Line
 
+- `-scene` loads a specific .scene.json file; example: `-scene programmer-art.scene.json`
+- `-width` and `-height` to set the window size; example: `-width 3840 -height 2160 -fullscreen`
+- `-fullscreen` to start in full screen mode; example: `-width 3840 -height 2160 -fullscreen`
+- `-adapter` to run on a specific GPU in multi GPU environments using a substring match; example: `-adapter A3000` will select an adapter with the full name `NVIDIA RTX A3000 Laptop GPU`
 - `-debug` to enable the graphics API debug layer or runtime, and the [NVRHI](https://github.com/NVIDIAGameWorks/nvrhi) validation layer.
-- `-fullscreen` to start in full screen mode.
-- `-no-vsync` to start without VSync (can be toggled in the GUI).
-- `-print-graph` to print the scene graph into the output log on startup.
-- `-width` and `-height` to set the window size.
-- `<FileName>` to load any supported model or scene from the given file.
+ 
 
 ## Developer Documentation
 
 We are working on more detailed SDK developer documentation - watch this space!
 
+
 ## Contact
 
 Path Tracing SDK is under active development. Please report any issues directly through GitHub issue tracker, and for any information, suggestions or general requests please feel free to contact us at pathtracing-sdk-support@nvidia.com!
+
 
 ## License
 

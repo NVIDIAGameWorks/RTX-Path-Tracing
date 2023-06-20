@@ -30,8 +30,8 @@
 
 function(donut_compile_shaders)
     set(options "")
-    set(oneValueArgs TARGET CONFIG FOLDER DXIL DXBC SPIRV_DXC CFLAGS INCLUDE)
-    set(multiValueArgs SOURCES)
+    set(oneValueArgs TARGET CONFIG FOLDER DXIL DXBC SPIRV_DXC CFLAGS)
+    set(multiValueArgs SOURCES INCLUDE)
     cmake_parse_arguments(params "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
     if (NOT params_TARGET)
@@ -48,11 +48,10 @@ function(donut_compile_shaders)
         DEPENDS shaderCompiler
         SOURCES ${params_SOURCES})
 
-    if (NOT params_INCLUDE)
-        set(INCLUDE_PATH "")
-    else()
-        set(INCLUDE_PATH -I ${params_INCLUDE})
-    endif()
+	set(INCLUDE_PATH "")
+	foreach(path ${params_INCLUDE})
+		list(APPEND INCLUDE_PATH -I ${path})
+	endforeach()
 
     if (params_DXIL AND (DONUT_WITH_DX12 AND DONUT_USE_DXIL_ON_DX12))
         if (NOT DXC_DXIL_EXECUTABLE)
@@ -73,7 +72,7 @@ function(donut_compile_shaders)
                                    --platform dxil
                                    --cflags "${CFLAGS}"
                                    -I ${DONUT_SHADER_INCLUDE_DIR}
-                                   ${INCLUDE_PATH}
+								   ${INCLUDE_PATH}
                                    --compiler ${DXC_DXIL_EXECUTABLE})
     endif()
 

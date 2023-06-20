@@ -77,17 +77,22 @@ struct ExplicitRayConesLodTextureSampler //: ITextureSampler
     }
     static ExplicitRayConesLodTextureSampler make(float rayconesLODWithoutTexDims) { ExplicitRayConesLodTextureSampler ret; ret.__init(rayconesLODWithoutTexDims); return ret; }
 
-    float4 sampleTexture(Texture2D t, SamplerState s, float2 uv, uniform bool debugColor = false)
+    float4 sampleTexture(Texture2D t, SamplerState s, float2 uv, uint baseLOD, uint mipLevels)
     {
-        uint txw, txh, mipLevels;
-        t.GetDimensions(0, txw, txh, mipLevels);
-        float lambda = 0.5 * log2(txw * txh) + rayconesLODWithoutTexDims;
+        float lambda = 0.5 * baseLOD + rayconesLODWithoutTexDims;
 
         // assuming last mip level is 1x1, limit the max MIP to 16x16; this improves both quality and performance via better coherence for MIP sampling and sampling of integer level
         lambda = min( lambda, max((float)mipLevels-5.0, 0.0) );
 
         // if( debugColor ) { uint dummy0, dummy1, mipLevels; t.GetDimensions(0,dummy0,dummy1,mipLevels); return float4( GradientHeatMap( 1.0 - lambda / float(mipLevels-1) ), t.SampleLevel(s, uv, lambda).a ); };
         return t.SampleLevel(s, uv, lambda);
+    }
+    float4 sampleTexture(Texture2D t, SamplerState s, float2 uv)
+    {
+        uint txw, txh, mipLevels;
+        t.GetDimensions(0, txw, txh, mipLevels);
+        float baseLOD = log2(txw * txh);
+        return sampleTexture(t, s, uv, baseLOD, mipLevels);
     }
 };
 

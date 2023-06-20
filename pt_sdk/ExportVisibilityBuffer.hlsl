@@ -12,6 +12,7 @@
 
 #include "PathTracerBridgeDonut.hlsli"
 #include "PathTracer/PathTracer.hlsli"
+#include "RTXDI/SurfaceData.hlsli"
 
 #include "ShaderResourceBindings.hlsli"
 
@@ -23,11 +24,13 @@ void main( uint2 dispatchThreadID : SV_DispatchThreadID )
         return;
 
     // Load the primary hit from the V-buffer (stable planes are now what used to be v-buffer).
-    StablePlanesContext stablePlanes = StablePlanesContext::make(pixelPos, u_StablePlanesHeader, u_StablePlanesBuffer, u_PrevStablePlanesHeader, u_PrevStablePlanesBuffer, u_StableRadiance, u_SecondarySurfaceRadiance, g_Const.ptConsts);
+    StablePlanesContext stablePlanes = StablePlanesContext::make(pixelPos, u_StablePlanesHeader, u_StablePlanesBuffer, u_StableRadiance, u_SecondarySurfaceRadiance, g_Const.ptConsts);
 
-    uint dominantStablePlaneIndex = stablePlanes.LoadDominantIndex();
-    PackedHitInfo packedHitInfo; float3 rayDir; uint vertexIndex; uint SERSortKey; uint stableBranchID; float sceneLength; float3 pathThp; float3 motionVectors;
-	stablePlanes.LoadStablePlane(pixelPos, dominantStablePlaneIndex, false, vertexIndex, packedHitInfo, SERSortKey, stableBranchID, rayDir, sceneLength, pathThp, motionVectors);
+    uint dominantStablePlaneIndex = stablePlanes.LoadDominantIndexCenter();
+    uint stableBranchID = stablePlanes.GetBranchID(pixelPos, dominantStablePlaneIndex);
+	StablePlane sp = stablePlanes.LoadStablePlane(pixelPos, dominantStablePlaneIndex);
+    PackedHitInfo packedHitInfo; float3 rayDir; uint vertexIndex; uint SERSortKey; float sceneLength; float3 pathThp; float3 motionVectors;
+    StablePlanesContext::UnpackStablePlane(sp, vertexIndex, packedHitInfo, SERSortKey, rayDir, sceneLength, pathThp, motionVectors);
 
     u_MotionVectors[pixelPos]   = float4(motionVectors, 0);
 
@@ -53,10 +56,22 @@ void main( uint2 dispatchThreadID : SV_DispatchThreadID )
         float3 virtualWorldPos = cameraRay.origin + cameraRay.dir * sceneLength;
         float4 clipPos = mul(float4(/*bridgedData.sd.posW*/virtualWorldPos, 1), g_Const.view.matWorldToClip);
         u_Depth[pixelPos] = clipPos.z / clipPos.w;
+        u_Throughput[pixelPos] = Pack_R11G11B10_FLOAT(saturate(pathThp));
     }
     else
     {
         u_Depth[pixelPos] = 0;
+        u_Throughput[pixelPos] = 0;
+    }
+
+    if (g_Const.ptConsts.useReSTIRDI || g_Const.ptConsts.useReSTIRGI)
+    {
+        // compute address for current output - it ping pongs based on frameIndex!
+        const uint idxPingPong = (g_Const.ptConsts.frameIndex % 2) == (uint)0;
+        const uint idx = GenericTSPixelToAddress(pixelPos, idxPingPong, g_Const.ptConsts.genericTSLineStride, g_Const.ptConsts.genericTSPlaneStride);
+
+        // TODO: make a variant that already takes StablePlanes inputs so they're not re-loaded again
+        u_SurfaceData[idx] = ExtractPackedGbufferSurfaceData(pixelPos, sp, dominantStablePlaneIndex, stableBranchID);
     }
 
     if (g_Const.debug.debugViewType==(int)DebugViewType::VBufferMotionVectors)

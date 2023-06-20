@@ -16,15 +16,10 @@
 // packed and aligned representation of PathState in a pre-raytrace state (no HitInfo, but path.origin and path.direction set)
 struct PathPayload
 {
-#if STABLE_PLANES_MODE==STABLE_PLANES_DISABLED      
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_REFERENCE      
     uint4   packed[5];                              // normal reference codepath
 #else
     uint4   packed[6];                              // generate requires more for imageXForm or various additional radiances
-#endif
-
-#ifndef USING_STATELESS_SAMPLE_GENERATOR
-    #error pack into packed[]
-    SampleGenerator sg;         ///< Sample generator state. Typically 4-16B.
 #endif
 
 #ifdef PATH_STATE_DEFINED
@@ -54,7 +49,7 @@ PathPayload PathPayload::pack(const PathState path)
     p.packed[3].z = asuint(path.sceneLength);
     p.packed[3].w = path.stableBranchID;
 
-#if STABLE_PLANES_MODE!=STABLE_PLANES_NOISY_PASS
+#if PATH_TRACER_MODE!=PATH_TRACER_MODE_FILL_STABLE_PLANES
     float3 radianceVal = path.L;
 #else
     float3 radianceVal = path.secondaryL;
@@ -64,17 +59,13 @@ PathPayload PathPayload::pack(const PathState path)
     p.packed[4].z = 0;
     p.packed[4].w = 0;
 
-#ifndef USING_STATELESS_SAMPLE_GENERATOR
-    p.sg = path.sg;
-#endif
-
-#if STABLE_PLANES_MODE==STABLE_PLANES_BUILD_PASS
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES
     uint p0 = ((f32tof16(path.imageXform[0].x)) << 16) | (f32tof16(path.imageXform[0].y));
     uint p1 = ((f32tof16(path.imageXform[0].z)) << 16) | (f32tof16(path.imageXform[1].x));
     uint p2 = ((f32tof16(path.imageXform[1].y)) << 16) | (f32tof16(path.imageXform[1].z));
     uint handedness = dot( cross(path.imageXform[0],path.imageXform[1]), path.imageXform[2] ) > 0;  // need to track handedness since mirror reflection flips it
     p.packed[5] = uint4(p0, p1, p2, handedness);    // 31 bits left unused in 'handedness' here :)
-#elif STABLE_PLANES_MODE==STABLE_PLANES_NOISY_PASS
+#elif PATH_TRACER_MODE==PATH_TRACER_MODE_FILL_STABLE_PLANES
     p.packed[4].z = asuint(path.denoiserSampleHitTFromPlane);
     p.packed[5] = ((f32tof16(clamp(path.denoiserDiffRadianceHitDist, 0, HLF_MAX))) << 16) | (f32tof16(clamp(path.denoiserSpecRadianceHitDist, 0, HLF_MAX)));
 #endif
@@ -104,22 +95,16 @@ PathState PathPayload::unpack(const PathPayload p, const PackedHitInfo packedHit
     path.stableBranchID = p.packed[3].w;
 
     float3 radianceVal = float3( f16tof32(p.packed[4].x >> 16), f16tof32(p.packed[4].x & 0xffff), f16tof32(p.packed[4].y >> 16) );
-#if STABLE_PLANES_MODE!=STABLE_PLANES_NOISY_PASS
+#if PATH_TRACER_MODE!=PATH_TRACER_MODE_FILL_STABLE_PLANES
     path.L = radianceVal;
 #else
     path.secondaryL = radianceVal;
 #endif
     path.pdf = f16tof32(p.packed[4].y & 0xffff);
 
-#ifndef USING_STATELESS_SAMPLE_GENERATOR
-    path.sg = p.sg;
-#else
-    path.sg = SampleGenerator::make(PathIDToPixel(path.id), path.getVertexIndex(), sampleIndex);
-#endif
-
     path.hitPacked = packedHitInfo;
 
-#if STABLE_PLANES_MODE==STABLE_PLANES_BUILD_PASS
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES
     uint p0 = p.packed[5].x;
     uint p1 = p.packed[5].y;
     uint p2 = p.packed[5].z;
@@ -129,7 +114,7 @@ PathState PathPayload::unpack(const PathPayload p, const PackedHitInfo packedHit
     path.imageXform[0] = normalize(path.imageXform[0]); // not sure these are needed
     path.imageXform[1] = normalize(path.imageXform[1]); // not sure these are needed
     path.imageXform[2] = handedness?cross(path.imageXform[0],path.imageXform[1]):cross(path.imageXform[1],path.imageXform[0]);
-#elif STABLE_PLANES_MODE==STABLE_PLANES_NOISY_PASS
+#elif PATH_TRACER_MODE==PATH_TRACER_MODE_FILL_STABLE_PLANES
     path.denoiserSampleHitTFromPlane    = asfloat(p.packed[4].z);
     path.denoiserDiffRadianceHitDist    = f16tof32(p.packed[5] >> 16);
     path.denoiserSpecRadianceHitDist    = f16tof32(p.packed[5] & 0xffff);

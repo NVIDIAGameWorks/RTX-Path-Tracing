@@ -13,7 +13,9 @@
 
 #include "Config.hlsli"
 
-#if USING_STATELESS_SAMPLE_GENERATOR
+// TODO: switch everything to stateless, we won't ever be storing rtg state in payload primarily due to register pressure
+
+#if 1 // USING_STATELESS_SAMPLE_GENERATOR <- this is now the default, non-stateless is unsupported
 
 #include "StatelessSampleGenerators.hlsli"
 #define SampleGenerator StatelessUniformSampleGenerator

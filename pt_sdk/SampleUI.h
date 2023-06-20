@@ -24,7 +24,7 @@
 #include <donut/render/TemporalAntiAliasingPass.h>
 
 #if ENABLE_DEBUG_DELTA_TREE_VIZUALISATION
-#include "ImNodes/ImNodesEz.h"
+#include "ImNodesEz.h"
 #endif
 
 #ifdef STREAMLINE_INTEGRATION
@@ -135,13 +135,15 @@ struct SampleUIData
 
     bool                                UseStablePlanes = false; // only determines whether UseStablePlanes is used in Accumulate mode (for testing correctness and enabling RTXDI) - in Realtime mode or when using RTXDI UseStablePlanes are necessary
     bool                                AllowRTXDIInReferenceMode = false; // allows use of RTXDI even in reference mode
-    bool                                UseReSTIR = false;
+    bool                                UseReSTIR = false;  // should be renamed as ReSTIRDI?
     bool                                UseReSTIRGI = false;
     bool                                RealtimeMode = false;
     bool                                RealtimeNoise = true;
     bool                                RealtimeDenoiser = true;
     bool                                ResetAccumulation = false;
     int                                 BounceCount = 30;
+    int                                 ReferenceDiffuseBounceCount = 6;
+    int                                 RealtimeDiffuseBounceCount = 3;
     int                                 AccumulationTarget = 4096;
     int                                 AccumulationIndex = 0;  // only for info
     bool                                AccumulationAA = true;
@@ -149,7 +151,7 @@ struct SampleUIData
     float                               CameraAperture = 0.0f;
     float                               CameraFocalDistance = 10000.0f;
     float                               CameraMoveSpeed = 2.0f;
-    float                               TexLODBias = -1.5f;     // as small as possible without reducing performance!
+    float                               TexLODBias = -1.0f;     // as small as possible without reducing performance!
     bool                                SuppressPrimaryNEE = false;
 
     donut::render::TemporalAntiAliasingParameters TemporalAntiAliasingParams;
@@ -158,6 +160,7 @@ struct SampleUIData
     bool                                ContinuousDebugFeedback = false;
     bool                                ShowDebugLines = false;
     donut::math::uint2                  DebugPixel = { 0, 0 };
+    donut::math::uint2                  MousePos = { 0, 0 };
     float                               DebugLineScale = 0.2f;
 
     bool                                ShowSceneTweakerWindow = false;
@@ -172,9 +175,13 @@ struct SampleUIData
     bool                                ShowWireframe;
 
     bool                                ReferenceFireflyFilterEnabled = true;
-    float                               ReferenceFireflyFilterThreshold = 2.0f;
+    float                               ReferenceFireflyFilterThreshold = 2.5f;
     bool                                RealtimeFireflyFilterEnabled = true;
-    float                               RealtimeFireflyFilterThreshold = 0.15f;
+    float                               RealtimeFireflyFilterThreshold = 0.25f;
+
+    float                               DenoiserRadianceClampK = 16.0f;
+
+    bool                                EnableRussianRoulette = true;
 
     bool                                DXRHitObjectExtension = true;
     bool                                ShaderExecutionReordering = true;
@@ -182,22 +189,18 @@ struct SampleUIData
     AccelerationStructureUIData         AS;
 
     RtxdiUserSettings                   RTXDI;
-    rtxdi::ReGIRMode                    ReGirMode = rtxdi::ReGIRMode::Disabled;/* rtxdi::ReGIRMode::Onion;*/
-    bool                                ResetRTXDI = false; // ReGir mode and bias correction require the rtxdi context to be recreated at runtime
     
-#if ENABLE_DEBUG_DELTA_TREE_VIZUALISATION
     bool                                ShowDeltaTree = false;
-#endif
     bool                                ShowMaterialEditor = true;  // this makes material editor default right click option
 
 #ifdef STREAMLINE_INTEGRATION
     float                               DLSS_Sharpness = 0.f;
     bool                                DLSS_Supported = false;
-    static constexpr sl::DLSSMode       DLSS_ModeDefault = sl::DLSSMode::eDLSSModeMaxQuality;
+    static constexpr sl::DLSSMode       DLSS_ModeDefault = sl::DLSSMode::eMaxQuality;
     sl::DLSSMode                        DLSS_Mode = DLSS_ModeDefault;
     bool                                DLSS_Dynamic_Res_change = true;
     donut::math::int2                   DLSS_Last_DisplaySize = { 0,0 };
-    sl::DLSSMode                        DLSS_Last_Mode = sl::DLSSMode::eDLSSModeOff;
+    sl::DLSSMode                        DLSS_Last_Mode = sl::DLSSMode::eOff;
     int                                 DLSS_Last_RealtimeAA = 0;
     bool                                DLSS_DebugShowFullRenderingBuffer = false;
     bool                                DLSS_lodbias_useoveride = false;
@@ -207,7 +210,7 @@ struct SampleUIData
     // LATENCY specific parameters
     bool                                REFLEX_Supported = false;
     bool                                REFLEX_LowLatencyAvailable = false;
-    int                                 REFLEX_Mode = sl::ReflexMode::eReflexModeOff;
+    int                                 REFLEX_Mode = sl::ReflexMode::eOff;
     int                                 REFLEX_CapedFPS = 0;
     std::string                         REFLEX_Stats = "";
     bool                                REFLEX_ShowStats = false;
@@ -215,18 +218,18 @@ struct SampleUIData
 
     // DLFG specific parameters
     bool                                DLSSG_Supported = false;
-    sl::DLSSGMode                       DLSSG_mode = sl::DLSSGMode::eDLSSGModeOff;
-    float                               DLSSG_fps = 0;
+    sl::DLSSGMode                       DLSSG_mode = sl::DLSSGMode::eOff;
+    int                                 DLSSG_multiplier = 1;
 #endif
 
     int                                 StablePlanesActiveCount             = cStablePlaneCount;
     int                                 StablePlanesMaxVertexDepth          = std::min(14u, cStablePlaneMaxVertexIndex);
-    float                               StablePlanesSplitStopThreshold      = 0.9f;
-    float                               StablePlanesMinRoughness            = 0.09f;
+    float                               StablePlanesSplitStopThreshold      = 0.95f;
+    float                               StablePlanesMinRoughness            = 0.07f;
     bool                                AllowPrimarySurfaceReplacement      = true;
     bool                                StablePlanesSuppressPrimaryIndirectSpecular = true;
-    float                               StablePlanesSuppressPrimaryIndirectSpecularK = 0.5f;
-    float                               StablePlanesAntiAliasingFallthrough = 0.7f;
+    float                               StablePlanesSuppressPrimaryIndirectSpecularK = 0.4f;
+    float                               StablePlanesAntiAliasingFallthrough = 0.6f;
     //bool                                StablePlanesSkipIndirectNoisePlane0 = false;
 
     std::shared_ptr<std::vector<TogglableNode>> TogglableNodes = nullptr;
@@ -235,7 +238,7 @@ struct SampleUIData
     //bool                                ActualSkipIndirectNoisePlane0() const       { return StablePlanesSkipIndirectNoisePlane0 && StablePlanesActiveCount > 2; }
 
     bool                                ActualUseRTXDIPasses() const                { return (RealtimeMode || AllowRTXDIInReferenceMode) && (UseReSTIR || UseReSTIRGI); }
-    bool                                ActualUseReSTIR() const                     { return (RealtimeMode || AllowRTXDIInReferenceMode) && (UseReSTIR); }
+    bool                                ActualUseReSTIRDI() const                   { return (RealtimeMode || AllowRTXDIInReferenceMode) && (UseReSTIR); }
     bool                                ActualUseReSTIRGI() const                   { return (RealtimeMode || AllowRTXDIInReferenceMode) && (UseReSTIRGI); }
 
     // Denoiser
@@ -243,7 +246,7 @@ struct SampleUIData
     NrdConfig::DenoiserMethod           NRDMethod = NrdConfig::DenoiserMethod::RELAX;
     float                               NRDDisocclusionThreshold = 0.01f;
     bool                                NRDUseAlternateDisocclusionThresholdMix = true;
-    float                               NRDDisocclusionThresholdAlternate = 1.0f;
+    float                               NRDDisocclusionThresholdAlternate = 0.1f;
     nrd::RelaxDiffuseSpecularSettings   RelaxSettings;
     nrd::ReblurSettings                 ReblurSettings;
 
@@ -272,7 +275,7 @@ private:
     const bool m_OMMSupported;
 
 #if ENABLE_DEBUG_DELTA_TREE_VIZUALISATION
-    ImNodes::Ez::Context * m_ImNodesContext;
+    ImNodes::Ez::Context* m_ImNodesContext;
 #endif
 
 public:

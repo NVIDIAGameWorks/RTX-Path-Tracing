@@ -143,29 +143,10 @@ RtxdiResources::RtxdiResources(
     giReservoirBufferDesc.canHaveUAVs = true;
     GIReservoirBuffer = device->createBuffer(giReservoirBufferDesc);
 
-
-    nvrhi::BufferDesc secondarySurfaceBufferDesc;
-    secondarySurfaceBufferDesc.byteSize = sizeof(SecondarySurface) * context.GetReservoirBufferElementCount();
-    secondarySurfaceBufferDesc.structStride = sizeof(SecondarySurface);
-    secondarySurfaceBufferDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
-    secondarySurfaceBufferDesc.keepInitialState = true;
-    secondarySurfaceBufferDesc.debugName = "SecondarySurfaceBuffer";
-    secondarySurfaceBufferDesc.canHaveUAVs = true;
-    SecondarySurfaceBuffer = device->createBuffer(secondarySurfaceBufferDesc);
-
-	nvrhi::BufferDesc surfaceBufferDesc;
-    surfaceBufferDesc.byteSize = sizeof(PackedSurfaceData) * 2 * context.GetParameters().RenderWidth * context.GetParameters().RenderHeight;
-	surfaceBufferDesc.structStride = sizeof(PackedSurfaceData);
-	surfaceBufferDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
-	surfaceBufferDesc.keepInitialState = true;
-	surfaceBufferDesc.debugName = "SurfaceData";
-	surfaceBufferDesc.canHaveUAVs = true;
-    SurfaceDataBuffer = device->createBuffer(surfaceBufferDesc);
-
     nvrhi::TextureDesc environmentPdfDesc;
     environmentPdfDesc.width = getNextPowerOf2(environmentMapWidth);
     environmentPdfDesc.height = getNextPowerOf2(environmentMapHeight);
-    environmentPdfDesc.mipLevels = uint32_t(ceilf(::log2f(float(std::max(environmentPdfDesc.width, environmentPdfDesc.height))))); // Stop at 2x1 or 2x2
+    environmentPdfDesc.mipLevels = uint32_t(ceilf(::log2f(float(std::max(environmentPdfDesc.width, environmentPdfDesc.height)))) + 1); // full mip chain
     environmentPdfDesc.isUAV = true;
     environmentPdfDesc.debugName = "EnvironmentPdf";
     environmentPdfDesc.initialState = nvrhi::ResourceStates::ShaderResource;

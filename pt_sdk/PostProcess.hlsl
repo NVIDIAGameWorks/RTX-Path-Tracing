@@ -42,7 +42,7 @@ void main( uint3 dispatchThreadID : SV_DispatchThreadID )
     DebugContext debug; debug.Init( pixelPos, sampleIndex, g_Const.debug, u_FeedbackBuffer, u_DebugLinesBuffer, u_DebugDeltaPathTree, u_DeltaPathSearchStack, u_DebugVizOutput );
     PathState path = PathTracer::emptyPathInitialize( pixelPos, sampleIndex, g_Const.ptConsts.camera.pixelConeSpreadAngle );
     const Ray cameraRay = Bridge::computeCameraRay( pixelPos );
-    StablePlanesContext stablePlanes = StablePlanesContext::make(pixelPos, u_StablePlanesHeader, u_StablePlanesBuffer, u_PrevStablePlanesHeader, u_PrevStablePlanesBuffer, u_StableRadiance, u_SecondarySurfaceRadiance, g_Const.ptConsts);
+    StablePlanesContext stablePlanes = StablePlanesContext::make(pixelPos, u_StablePlanesHeader, u_StablePlanesBuffer, u_StableRadiance, u_SecondarySurfaceRadiance, g_Const.ptConsts);
 
 #if ENABLE_DEBUG_VIZUALISATION
     debug.StablePlanesDebugViz(stablePlanes);
@@ -93,6 +93,18 @@ float ComputeDisocclusionRelaxation(const StablePlanesContext stablePlanes, cons
     return saturate( (disocclusionRelax-0.00002) * 25 );
 }
 
+void NRDProbabilisticSamplingClamp( inout float4 radianceHitT, const float rangeK )
+{
+    const float kClampMin = g_Const.ptConsts.preExposedGrayLuminance/rangeK;
+    const float kClampMax = g_Const.ptConsts.preExposedGrayLuminance*rangeK;
+
+    const float lum = luminance( radianceHitT.xyz );
+    if (lum > kClampMax)
+        radianceHitT.xyz *= kClampMax / lum;
+}
+
+
+
 [numthreads(NUM_COMPUTE_THREADS_PER_DIM, NUM_COMPUTE_THREADS_PER_DIM, 1)]
 void main( uint3 dispatchThreadID : SV_DispatchThreadID )
 {
@@ -106,13 +118,13 @@ void main( uint3 dispatchThreadID : SV_DispatchThreadID )
     DebugContext debug; debug.Init( pixelPos, sampleIndex, g_Const.debug, u_FeedbackBuffer, u_DebugLinesBuffer, u_DebugDeltaPathTree, u_DeltaPathSearchStack, u_DebugVizOutput );
     PathState path = PathTracer::emptyPathInitialize( pixelPos, sampleIndex, g_Const.ptConsts.camera.pixelConeSpreadAngle );
     const Ray cameraRay = Bridge::computeCameraRay( pixelPos );
-    StablePlanesContext stablePlanes = StablePlanesContext::make(pixelPos, u_StablePlanesHeader, u_StablePlanesBuffer, u_PrevStablePlanesHeader, u_PrevStablePlanesBuffer, u_StableRadiance, u_SecondarySurfaceRadiance, g_Const.ptConsts);
+    StablePlanesContext stablePlanes = StablePlanesContext::make(pixelPos, u_StablePlanesHeader, u_StablePlanesBuffer, u_StableRadiance, u_SecondarySurfaceRadiance, g_Const.ptConsts);
 
     bool hasSurface = false;
-    uint spBranchID = stablePlanes.GetBranchID(stablePlaneIndex);
+    uint spBranchID = stablePlanes.GetBranchIDCenter(stablePlaneIndex);
     if( spBranchID != cStablePlaneInvalidBranchID )
     {
-        StablePlane sp = stablePlanes.LoadStablePlane( pixelPos, stablePlaneIndex, false );
+        StablePlane sp = stablePlanes.LoadStablePlane(pixelPos, stablePlaneIndex);
 
         const HitInfo hit = HitInfo(sp.PackedHitInfo);
         bool hitSurface = hit.isValid() && hit.getType() == HitType::Triangle;
@@ -150,7 +162,7 @@ void main( uint3 dispatchThreadID : SV_DispatchThreadID )
             {   // only apply suppression on sp 0, and only if more than 1 stable plane enabled, and only if other stable planes are in use (so they captured some of specular radiance)
                 bool shouldSuppress = true;
                 for (int i = 1; i < g_Const.ptConsts.activeStablePlaneCount; i++ )
-                    shouldSuppress &= stablePlanes.GetBranchID(i) != cStablePlaneInvalidBranchID;
+                    shouldSuppress &= stablePlanes.GetBranchIDCenter(i) != cStablePlaneInvalidBranchID;
                 // (optional, experimental, for future: also don't apply suppression if rough specular)
                 float roughnessModifiedSuppression = g_Const.ptConsts.stablePlanesSuppressPrimaryIndirectSpecularK; // * saturate(1 - (finalRoughness - g_Const.ptConsts.stablePlanesMinRoughness)*5);
                 specularSuppressionMul = shouldSuppress?saturate(1-roughnessModifiedSuppression):specularSuppressionMul;
@@ -205,12 +217,17 @@ void main( uint3 dispatchThreadID : SV_DispatchThreadID )
             denoiserSpecRadianceHitDist.xyz *= specularSuppressionMul;
 
             u_DenoiserNormalRoughness[pixelPos]     = NRD_FrontEnd_PackNormalAndRoughness( sp.DenoiserNormalRoughness.xyz, finalRoughness );
+
+            // When using probabilistic sampling and HitDistanceReconstructionMode::AREA_xXxwe have to clamp the inputs to be 
+            // within sensible range.
+            NRDProbabilisticSamplingClamp( denoiserDiffRadianceHitDist, g_Const.ptConsts.denoiserRadianceClampK*16 );
+            NRDProbabilisticSamplingClamp( denoiserSpecRadianceHitDist, lerp(g_Const.ptConsts.denoiserRadianceClampK, g_Const.ptConsts.denoiserRadianceClampK*16, finalRoughness) );
     #if USE_RELAX
             u_DenoiserDiffRadianceHitDist[pixelPos] = RELAX_FrontEnd_PackRadianceAndHitDist( denoiserDiffRadianceHitDist.xyz, denoiserDiffRadianceHitDist.w );
             u_DenoiserSpecRadianceHitDist[pixelPos] = RELAX_FrontEnd_PackRadianceAndHitDist( denoiserSpecRadianceHitDist.xyz, denoiserSpecRadianceHitDist.w );
     #else
             float4 hitParams = g_Const.denoisingHitParamConsts;
-            float diffNormHitDistance = REBLUR_FrontEnd_GetNormHitDist( denoiserDiffRadianceHitDist.w, virtualViewspaceZ, hitParams, sp.DenoiserNormalRoughness.w);
+            float diffNormHitDistance = REBLUR_FrontEnd_GetNormHitDist( denoiserDiffRadianceHitDist.w, virtualViewspaceZ, hitParams, 1);
             u_DenoiserDiffRadianceHitDist[pixelPos] = REBLUR_FrontEnd_PackRadianceAndNormHitDist( denoiserDiffRadianceHitDist.xyz, diffNormHitDistance );
             float specNormHitDistance = REBLUR_FrontEnd_GetNormHitDist( denoiserSpecRadianceHitDist.w, virtualViewspaceZ, hitParams, sp.DenoiserNormalRoughness.w);
             u_DenoiserSpecRadianceHitDist[pixelPos] = REBLUR_FrontEnd_PackRadianceAndNormHitDist( denoiserSpecRadianceHitDist.xyz, specNormHitDistance );
@@ -218,16 +235,9 @@ void main( uint3 dispatchThreadID : SV_DispatchThreadID )
         }
     }
     
+    // if no surface (sky or no data) mark the pixel for NRD as unused; all the other inputs will be ignored
     if( !hasSurface )
-    { 
-        // TODO: I'm pretty sure we don't need to write everything for NRD when pixel is unused but, I don't know exactly what is needed so erring on the safe side
         u_DenoiserViewspaceZ[pixelPos]          = VIEWZ_SKY_MARKER;
-        // u_DenoiserMotionVectors[pixelPos]       = float3(0,0,0);
-        // u_DenoiserNormalRoughness[pixelPos]     = float4(0,0,0,0);
-        // u_DenoiserDiffRadianceHitDist[pixelPos] = float4(0,0,0,0);
-        // u_DenoiserSpecRadianceHitDist[pixelPos] = float4(0,0,0,0);
-        // u_DenoiserPackedBSDFEstimate[pixelPos]  = uint3(0,0,0);    // TODO <- remove this as a separate thing, it's already available in StablePlanes, make sure StablePlanes accessible in PostProcess 
-    }
 
     // // manual debug viz, just in case
     if( stablePlaneIndex == 2 )
@@ -285,7 +295,7 @@ void main( uint3 dispatchThreadID : SV_DispatchThreadID )
     // skip sky!
     if (hasSurface)
     {
-        uint spAddress = StablePlanesPixelToAddress(pixelPos, stablePlaneIndex, g_Const.ptConsts.imageWidth, g_Const.ptConsts.imageHeight);
+        uint spAddress = GenericTSPixelToAddress(pixelPos, stablePlaneIndex, g_Const.ptConsts.genericTSLineStride, g_Const.ptConsts.genericTSPlaneStride);
         float3 diffBSDFEstimate, specBSDFEstimate;
         UnpackTwoFp32ToFp16(t_StablePlanesBuffer[spAddress].DenoiserPackedBSDFEstimate, diffBSDFEstimate, specBSDFEstimate);
         //diffBSDFEstimate = 1.xxx; specBSDFEstimate = 1.xxx;
@@ -329,6 +339,7 @@ void main( uint3 dispatchThreadID : SV_DispatchThreadID )
         
         if (debugThisPlane)
         {
+            float viewZ = t_DenoiserViewspaceZ[pixelPos].x;
             float4 validation = t_DenoiserValidation[pixelPos].rgba;
             switch (g_Const.debug.debugViewType)
             {
@@ -336,6 +347,7 @@ void main( uint3 dispatchThreadID : SV_DispatchThreadID )
             case ((int)DebugViewType::StablePlaneDiffRadianceDenoised):     u_DebugVizOutput[outDebugPixelPos] = float4( diffRadiance.rgb, 1 ); break;
             case ((int)DebugViewType::StablePlaneSpecRadianceDenoised):     u_DebugVizOutput[outDebugPixelPos] = float4( specRadiance.rgb, 1 ); break;
             case ((int)DebugViewType::StablePlaneCombinedRadianceDenoised): u_DebugVizOutput[outDebugPixelPos] = float4( diffRadiance.rgb + specRadiance.rgb, 1 ); break;
+            case ((int)DebugViewType::StablePlaneViewZ):                    u_DebugVizOutput[outDebugPixelPos] = float4( viewZ/10, frac(viewZ), 0, 1 ); break;
             case ((int)DebugViewType::StablePlaneDenoiserValidation):       
                 if( validation.a > 0 ) 
                     u_DebugVizOutput[outDebugPixelPos] = float4( validation.rgb, 1 ); 

@@ -39,22 +39,24 @@ void RayGen()
     if (RAB_IsSurfaceValid(surface))
     {
         RTXDI_Reservoir centerSample = RTXDI_LoadReservoir(runtimeParams,
-            GlobalIndex, g_RtxdiBridgeConst.spatialInputBufferIndex);
+            GlobalIndex, g_RtxdiBridgeConst.reStirDI.spatialInputBufferIndex);
 
         RTXDI_SpatialResamplingParameters sparams;
-        sparams.sourceBufferIndex = g_RtxdiBridgeConst.spatialInputBufferIndex;
-        sparams.numSamples = g_RtxdiBridgeConst.numSpatialSamples;
-        sparams.numDisocclusionBoostSamples = g_RtxdiBridgeConst.numDisocclusionBoostSamples;
-        sparams.targetHistoryLength = g_RtxdiBridgeConst.maxHistoryLength;
-        sparams.biasCorrectionMode = g_RtxdiBridgeConst.spatialBiasCorrection;
-        sparams.samplingRadius =  g_RtxdiBridgeConst.spatialSamplingRadius;
-        sparams.depthThreshold =  g_RtxdiBridgeConst.spatialDepthThreshold;
-        sparams.normalThreshold = g_RtxdiBridgeConst.spatialNormalThreshold;
+        sparams.sourceBufferIndex = g_RtxdiBridgeConst.reStirDI.spatialInputBufferIndex;
+        sparams.numSamples = g_RtxdiBridgeConst.reStirDI.numSpatialSamples;
+        sparams.numDisocclusionBoostSamples = g_RtxdiBridgeConst.reStirDI.numDisocclusionBoostSamples;
+        sparams.targetHistoryLength = g_RtxdiBridgeConst.reStirDI.maxHistoryLength;
+        sparams.biasCorrectionMode = g_RtxdiBridgeConst.reStirDI.spatialBiasCorrection;
+        sparams.samplingRadius =  g_RtxdiBridgeConst.reStirDI.spatialSamplingRadius;
+        sparams.depthThreshold =  g_RtxdiBridgeConst.reStirDI.spatialDepthThreshold;
+        sparams.normalThreshold = g_RtxdiBridgeConst.reStirDI.spatialNormalThreshold;
+        sparams.enableMaterialSimilarityTest = true;
+        sparams.discountNaiveSamples = g_RtxdiBridgeConst.reStirDI.discountNaiveSamples;
 
         RAB_LightSample lightSample = (RAB_LightSample)0;
         spatialResult = RTXDI_SpatialResampling(pixelPosition, surface, centerSample, 
              rng, sparams, runtimeParams, lightSample);
     }
 
-    RTXDI_StoreReservoir(spatialResult, runtimeParams, GlobalIndex, g_RtxdiBridgeConst.spatialOutputBufferIndex);
+    RTXDI_StoreReservoir(spatialResult, runtimeParams, GlobalIndex, g_RtxdiBridgeConst.reStirDI.spatialOutputBufferIndex);
 }

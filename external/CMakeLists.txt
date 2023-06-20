@@ -53,7 +53,8 @@ set(NRD_NORMAL_ENCODING "2" CACHE STRING "Normal encoding variant (0-4, matches 
 set(NRD_ROUGHNESS_ENCODING "1" CACHE STRING "Roughness encoding variant (0-2, matches nrd::RoughnessEncoding)")
 set(NRD_IS_SUBMODULE ON)
 # NRD uses a custom output path for some reason
-set(GLOBAL_BIN_OUTPUT_PATH ${CMAKE_BINARY_DIR})
+set(GLOBAL_BIN_OUTPUT_PATH ${CMAKE_BINARY_DIR} CACHE STRING "")
+set(NRD_SHADERS_PATH "${CMAKE_BINARY_DIR}/NRDShaders" CACHE STRING "")
 option(NRD_DISABLE_SHADER_COMPILATION "" ON)
 option(NRD_USE_PRECOMPILED_SHADERS "" OFF)
 
@@ -75,7 +76,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nrd/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nrd/spirv
     CFLAGS "-WX -O3 -enable-16bit-types -all_resources_bound"
-    INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/RayTracingDenoiser/External/MathLib
+    INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/RayTracingDenoiser/External/MathLib ${CMAKE_CURRENT_SOURCE_DIR}/RayTracingDenoiser/Shaders/Include ${CMAKE_CURRENT_SOURCE_DIR}/RayTracingDenoiser/Shaders/Resources
 )
 
 ##########################################################################
@@ -98,7 +99,7 @@ util_generate_shader_config_file(
     "-D COMPILER_DXC=1"
 )
 
-# Compile all shaders in nrd_shaders.cfg 
+# Compile all shaders in omm.cfg 
 donut_compile_shaders(
     TARGET omm_sdk_shaders
     CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/omm.cfg
@@ -111,5 +112,7 @@ donut_compile_shaders(
 ##########################################################################
 ################################ RTXDI SDK ###############################
 ##########################################################################
+
+set(RTXDI_SKIP_SHADER_VALIDATION ON CACHE STRING "Skip RTXDI shader validation")
 
 add_subdirectory("RTXDI/rtxdi-sdk")

@@ -29,23 +29,6 @@ float PowerHeuristic(float nf, float fPdf, float ng, float gPdf)
     return (f * f) / (f * f + g * g);
 }
 
-// used for debugging, from https://www.shadertoy.com/view/llKGWG - Heat map, Created by joshliebe in 2016-Oct-15
-float3 GradientHeatMap( float greyValue )
-{
-    greyValue = saturate(greyValue);
-    float3 heat; heat.r = smoothstep(0.5, 0.8, greyValue);
-    if(greyValue >= 0.90)
-    	heat.r *= (1.1 - greyValue) * 5.0;
-	if(greyValue > 0.7)
-		heat.g = smoothstep(1.0, 0.7, greyValue);
-	else
-		heat.g = smoothstep(0.0, 0.7, greyValue);
-	heat.b = smoothstep(1.0, 0.0, greyValue);          
-    if(greyValue <= 0.3)
-    	heat.b *= greyValue / 0.3;     
-    return heat;
-}
-
 // !! Ported from ..\Falcor\Source\Falcor\Scene\Camera\Camera.hlsli !!
 /** Computes the primary ray's direction, non-normalized assuming pinhole camera model.
     The camera jitter is taken into account to compute the sample position on the image plane.

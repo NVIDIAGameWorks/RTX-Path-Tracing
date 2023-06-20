@@ -101,7 +101,7 @@ struct BSDFProperties
         const float NdotV = saturate(dot(normal, viewVector));
         const float ggxAlpha = roughness * roughness;
         float3 specularReflectance = approxSpecularIntegralGGX(specularReflectionAlbedo, ggxAlpha, NdotV); // note, also adding base path throughput to modulation here!
-        specularReflectance += specularTransmissionAlbedo; // <- this is just a temporary hack
+        specularReflectance += specularTransmissionAlbedo; // best approximation for now
         outSpecEstimate = specularReflectance;
      #else
         outDiffEstimate = float3(1,1,1);

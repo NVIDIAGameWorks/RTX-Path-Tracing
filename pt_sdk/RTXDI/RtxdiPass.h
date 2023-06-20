@@ -19,12 +19,6 @@
 #include "../RayTracingPass.h"
 #include "RtxdiResources.h"
 
-namespace rtxdi
-{
-	class Context;
-	struct FrameParameters;
-}
-
 class RenderTargets;
 class PrepareLightsPass;
 class GenerateMipsPass;
@@ -39,15 +33,9 @@ namespace donut::engine
 	class PlanarView;
 }
 
-struct CameraVectors
-{
-	donut::math::float3 cameraU;
-	donut::math::float3 cameraV;
-	donut::math::float3 cameraW;
-};
-
 enum class RtxdiResamplingModeType : uint32_t
 {
+	Disabled,
 	SpatialResampling,
 	TemporalResampling, 
 	SpatioTemporalResampling,	//Runs TemporalResampling followed by SpatialResampling
@@ -55,16 +43,10 @@ enum class RtxdiResamplingModeType : uint32_t
 	MaxCount
 };
 
-static const std::unordered_map<RtxdiResamplingModeType, std::string> resamplingModeToString = {
-	{RtxdiResamplingModeType::SpatialResampling, "Spatial Re-sampling"},
-	{RtxdiResamplingModeType::TemporalResampling, "Temporal Re-sampling"},
-	{RtxdiResamplingModeType::SpatioTemporalResampling, "Spatio Temporal Re-sampling"},
-	{RtxdiResamplingModeType::FusedResampling, "Fused Re-sampling"}
-};
-
 struct RtxdiUserSettings
 {
 	RtxdiResamplingModeType resamplingMode = RtxdiResamplingModeType::SpatioTemporalResampling;
+	rtxdi::ReGIRContextParameters reGirSettings;
 
 	uint32_t spatialBiasCorrection = RTXDI_BIAS_CORRECTION_RAY_TRACED;
 	uint32_t temporalBiasCorrection = RTXDI_BIAS_CORRECTION_RAY_TRACED;
@@ -95,6 +77,7 @@ struct RtxdiUserSettings
 	float temporalNormalThreshold = 0.5f;
 	float boilingFilterStrength = 0.2f;
 	uint32_t numRegirBuildSamples = 8;
+	bool discountNaiveSamples = true;
 
 	struct
 	{
@@ -121,15 +104,7 @@ struct RtxdiBridgeParameters
 	rtxdi::FrameParameters frameParams;
 	donut::math::uint2 frameDims;
 	donut::math::float3 cameraPosition;
-	donut::math::float2 jitter;
-	CameraVectors cameraVectors;
 
-	rtxdi::ReGIRContextParameters ReGIRParams;
-
-	float environmentScale = 1.f;
-	float environmentRotation = 0.f;
-	
-	uint32_t sampleIndex; 
 	bool enableAA = false;
 
 	RtxdiUserSettings userSettings;
@@ -156,14 +131,14 @@ public:
 		const std::shared_ptr<donut::engine::ExtendedScene> scene,
 		const RtxdiBridgeParameters& bridgeParams,
 		const nvrhi::BindingLayoutHandle extraBindingLayout,
-		bool useRTXDI);
-	void FillConstants(nvrhi::CommandListHandle commandList);
+		bool UseReSTIRDI);
 	void Execute(
 		nvrhi::CommandListHandle commandList,
-		nvrhi::BindingSetHandle extraBindingSet = nullptr);
-	void FillGIConstants(nvrhi::CommandListHandle commandList);
+		nvrhi::BindingSetHandle extraBindingSet, bool skipFinal);
 	void ExecuteGI(nvrhi::CommandListHandle commandList,
-		nvrhi::BindingSetHandle extraBindingSet = nullptr);
+		nvrhi::BindingSetHandle extraBindingSet, bool skipFinal);
+    void ExecuteFusedDIGIFinal(nvrhi::CommandListHandle commandList,
+        nvrhi::BindingSetHandle extraBindingSet);
 	void EndFrame();
 	
 	std::shared_ptr<RtxdiResources> GetRTXDIResources() { return m_RtxdiResources; }
@@ -201,6 +176,8 @@ private:
 	RayTracingPass m_GISpatialResamplingPass;
 	RayTracingPass m_GIFinalShadingPass;
 
+    RayTracingPass m_FusedDIGIFinalShadingPass;
+
 	void ExecuteComputePass(
 		nvrhi::CommandListHandle& commandList, 
 		ComputePass& pass, 
@@ -220,15 +197,13 @@ private:
 
 	donut::engine::ShaderMacro GetReGirMacro(const rtxdi::ContextParameters& contextParameters);
 
-	void FillCommonBridgeConstants(struct RtxdiBridgeConstants& bridgeConstants) const;
+	void FillConstants(nvrhi::CommandListHandle commandList);
+	void FillSharedConstants(struct RtxdiBridgeConstants& bridgeConstants) const;
+	void FillDIConstants(struct ReStirDIConstants& diConstants);
+	void FillGIConstants(struct ReStirGIConstants& giConstants);
 
 	RtxdiBridgeParameters m_BridgeParameters;
 	bool m_EnvMapDirty;
-	donut::math::uint m_CurrentSurfaceBufferIdx;
-	CameraVectors m_CurrentCameraVectors;
-	CameraVectors m_PreviousCameraVectors;
-	uint32_t m_CurrentSampleIndex; 
-	uint32_t m_PreviousSampleIndex;
 	uint32_t m_CurrentReservoirIndex;
 	uint32_t m_PreviousReservoirIndex;
 };

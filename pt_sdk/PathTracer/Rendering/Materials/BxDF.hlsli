@@ -77,6 +77,7 @@ struct DiffuseReflectionLambert // : IBxDF
         if (min(wi.z, wo.z) < kMinCosTheta)
         {
             weight = float3(0,0,0);
+            lobeP = 0.0;
             return false;
         }
 
@@ -116,11 +117,12 @@ struct DiffuseReflectionDisney // : IBxDF
         if (min(wi.z, wo.z) < kMinCosTheta)
         {
             weight = float3(0,0,0);
+            lobeP = 0.0;
             return false;
         }
 
         weight = evalWeight(wi, wo);
-        lobeP = 1;
+        lobeP = 1.0;
         return true;
     }
 
@@ -170,11 +172,12 @@ struct DiffuseReflectionFrostbite // : IBxDF
         if (min(wi.z, wo.z) < kMinCosTheta)
         {
             weight = float3(0,0,0);
+            lobeP = 0.0;
             return false;
         }
 
         weight = evalWeight(wi, wo);
-        lobeP = 1;
+        lobeP = 1.0;
         return true;
     }
 
@@ -224,11 +227,12 @@ struct DiffuseTransmissionLambert // : IBxDF
         if (min(wi.z, -wo.z) < kMinCosTheta)
         {
             weight = float3(0,0,0);
+            lobeP = 0.0;
             return false;
         }
 
         weight = albedo;
-        lobeP = 1;
+        lobeP = 1.0;
         return true;
     }
 
@@ -281,7 +285,7 @@ struct SpecularReflectionMicrofacet // : IBxDF
         weight = float3(0,0,0);
         pdf = 0.f;
         lobe = (uint)LobeType::SpecularReflection;
-        lobeP = 1;
+        lobeP = 1.0;
 
         if (wi.z < kMinCosTheta) return false;
 
@@ -621,6 +625,29 @@ struct StandardBSDFData
         d.specularTransmission = 0;
         return d;
     }
+
+    static StandardBSDFData make(
+        float3 diffuse,
+        float3 specular,
+        float roughness,
+        float metallic,
+        float eta,
+        float3 transmission,
+        float diffuseTransmission,
+        float specularTransmission
+    )
+    {
+        StandardBSDFData d;
+        d.diffuse = diffuse;
+        d.specular = specular;
+        d.roughness = roughness;
+        d.metallic = metallic;
+        d.eta = eta;
+        d.transmission = transmission;
+        d.diffuseTransmission = diffuseTransmission;
+        d.specularTransmission = specularTransmission;
+        return d;
+    }
 };
 
 /** Mixed BSDF used for the standard material in Falcor.
@@ -656,14 +683,18 @@ struct FalcorBSDF // : IBxDF
         \param[in] sd Shading data.
         \param[in] data BSDF parameters.
     */
-    void __init(const ShadingData sd, const StandardBSDFData data)
+    void __init(
+        const MaterialHeader mtl,
+        float3 N,
+        float3 V,
+        const StandardBSDFData data)
     {
         // TODO: Currently specular reflection and transmission lobes are not properly separated.
         // This leads to incorrect behaviour if only the specular reflection or transmission lobe is selected.
         // Things work fine as long as both or none are selected.
 
         // Use square root if we can assume the shaded object is intersected twice.
-        float3 transmissionAlbedo = sd.mtl.isThinSurface() ? data.transmission : sqrt(data.transmission);
+        float3 transmissionAlbedo = mtl.isThinSurface() ? data.transmission : sqrt(data.transmission);
 
         // Setup lobes.
         diffuseReflection.albedo = data.diffuse;
@@ -680,9 +711,9 @@ struct FalcorBSDF // : IBxDF
 #else
         alpha = max(alpha, kMinGGXAlpha);
 #endif
-        const uint activeLobes = sd.mtl.getActiveLobes();
+        const uint activeLobes = mtl.getActiveLobes();
 
-        psdExclude = sd.mtl.isPSDExclude();
+        psdExclude = mtl.isPSDExclude();
 
         specularReflection.albedo = data.specular;
         specularReflection.alpha = alpha;
@@ -703,7 +734,7 @@ struct FalcorBSDF // : IBxDF
         float specularBSDF = specTrans;
 
         float diffuseWeight = luminance(data.diffuse);
-        float specularWeight = luminance(evalFresnelSchlick(data.specular, 1.f, dot(sd.V, sd.N)));
+        float specularWeight = luminance(evalFresnelSchlick(data.specular, 1.f, dot(V, N)));
 
         pDiffuseReflection = (activeLobes & (uint)LobeType::DiffuseReflection) ? diffuseWeight * dielectricBSDF * (1.f - diffTrans) : 0.f;
         pDiffuseTransmission = (activeLobes & (uint)LobeType::DiffuseTransmission) ? diffuseWeight * dielectricBSDF * diffTrans : 0.f;
@@ -721,7 +752,27 @@ struct FalcorBSDF // : IBxDF
         }
     }
     
+    /** Initialize a new instance.
+    \param[in] sd Shading data.
+    \param[in] data BSDF parameters.
+*/
+    void __init(const ShadingData sd, const StandardBSDFData data)
+    {
+        __init(sd.mtl, sd.V, sd.N, data);
+    }
+
     static FalcorBSDF make( const ShadingData sd, const StandardBSDFData data )     { FalcorBSDF ret; ret.__init(sd, data); return ret; }
+
+    static FalcorBSDF make(
+        const MaterialHeader mtl,
+        float3 N,
+        float3 V, 
+        const StandardBSDFData data) 
+    { 
+        FalcorBSDF ret;
+        ret.__init(mtl, N, V, data); 
+        return ret;
+    }
 
     /** Returns the set of BSDF lobes.
         \param[in] data BSDF parameters.
@@ -777,6 +828,7 @@ struct FalcorBSDF // : IBxDF
         weight = float3(0,0,0);
         pdf = 0.f;
         lobe = (uint)LobeType::DiffuseReflection;
+        lobeP = 0.0;
 
         bool valid = false;
         float uSelect = sampleNext1D(sg);

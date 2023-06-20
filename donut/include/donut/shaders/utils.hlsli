@@ -126,29 +126,6 @@ float interpolateSphericalHarmonics(float4 sh, float3 normalizedDirection)
     return 0.5 * (dot(sh.xyz, normalizedDirection) + sh.w);
 }
 
-// Smart bent normal for ray tracing
-// See appendix A.3 in https://arxiv.org/pdf/1705.01263.pdf
-float3 getBentNormal(float3 geometryNormal, float3 shadingNormal, float3 viewDirection)
-{
-    // Flip the normal in case we're looking at the geometry from its back side
-    if (dot(geometryNormal, viewDirection) > 0)
-    {
-        geometryNormal = -geometryNormal;
-        shadingNormal = -shadingNormal;
-    }
-
-    // Specular reflection in shading normal
-    float3 R = reflect(viewDirection, shadingNormal);
-    float a = dot(geometryNormal, R);
-    if (a < 0) // Perturb normal
-    {
-        float b = max(0.001, dot(shadingNormal, geometryNormal));
-        return normalize(-viewDirection + normalize(R - shadingNormal * a / b));
-    }
-
-    return shadingNormal;
-}
-
 float3 computeRayIntersectionBarycentrics(float3 vertices[3], float3 rayOrigin, float3 rayDirection)
 {
     float3 edge1 = vertices[1] - vertices[0];

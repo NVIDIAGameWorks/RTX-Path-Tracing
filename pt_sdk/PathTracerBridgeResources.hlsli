@@ -26,9 +26,6 @@ StructuredBuffer<MaterialConstants> t_MaterialConstants     : register(t5);
 Texture2D<float4> t_EnvironmentMap                          : register(t6);
 Texture2D<float> t_ImportanceMap                            : register(t7);
 
-RWTexture2D<float4> u_RtxdiOutDirectionValid				: register(u2);
-RWTexture2D<float4> u_RtxdiLiDistance						: register(u3);
-
 SamplerState s_MaterialSampler                              : register(s0);
 SamplerState s_EnvironmentMapSampler                        : register(s1);
 SamplerState s_ImportanceSampler                            : register(s2);

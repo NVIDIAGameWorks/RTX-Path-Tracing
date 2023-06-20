@@ -75,14 +75,14 @@ struct MaterialConstants
     float   occlusionStrength;
     float   alphaCutoff;
     float   transmissionFactor;
-    int     baseOrDiffuseTextureIndex;
+    uint    baseOrDiffuseTextureIndex;
 
-    int     metalRoughOrSpecularTextureIndex;
-    int     emissiveTextureIndex;
-    int     normalTextureIndex;
-    int     occlusionTextureIndex;
+    uint    metalRoughOrSpecularTextureIndex;
+    uint    emissiveTextureIndex;
+    uint    normalTextureIndex;
+    uint    occlusionTextureIndex;
 
-    int     transmissionTextureIndex;
+    uint    transmissionTextureIndex;
     float   ior;
     float   thicknessFactor;
     float   diffuseTransmissionFactor;

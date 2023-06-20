@@ -89,46 +89,56 @@ static nvrhi::Format GetNvrhiFormat(nrd::Format format)
     }
 }
 
-NrdIntegration::NrdIntegration(nvrhi::IDevice* device, nrd::Method method)
+NrdIntegration::NrdIntegration(nvrhi::IDevice* device, nrd::Denoiser denoiser)
     : m_Device(device)
     , m_Initialized(false)
-    , m_Denoiser(nullptr)
-    , m_Method(method)
+    , m_Instance(nullptr)
+    , m_Denoiser(denoiser)
     , m_BindingCache(device)
+    , m_Identifier(0)
 {
+}
+
+NrdIntegration::~NrdIntegration()
+{
+    if (m_Initialized)
+    {
+        nrd::DestroyInstance(*m_Instance);
+    }
 }
 
 bool NrdIntegration::Initialize(uint32_t width, uint32_t height, donut::engine::ShaderFactory& shaderFactory)
 {
     const nrd::LibraryDesc& libraryDesc = nrd::GetLibraryDesc();
 
-    const nrd::MethodDesc methods[] = {
-        { m_Method, uint16_t(width), uint16_t(height) }
+    const nrd::DenoiserDesc denoiserDescs[] =
+    {
+        { m_Identifier, m_Denoiser, uint16_t(width), uint16_t(height)}
     };
 
-    nrd::DenoiserCreationDesc denoiserCreationDesc;
-    denoiserCreationDesc.memoryAllocatorInterface.Allocate = NrdAllocate;
-    denoiserCreationDesc.memoryAllocatorInterface.Reallocate = NrdReallocate;
-    denoiserCreationDesc.memoryAllocatorInterface.Free = NrdFree;
-    denoiserCreationDesc.requestedMethodsNum = dim(methods);
-    denoiserCreationDesc.requestedMethods = methods;
+    nrd::InstanceCreationDesc instanceCreationDesc;
+    instanceCreationDesc.memoryAllocatorInterface.Allocate = NrdAllocate;
+    instanceCreationDesc.memoryAllocatorInterface.Reallocate = NrdReallocate;
+    instanceCreationDesc.memoryAllocatorInterface.Free = NrdFree;
+    instanceCreationDesc.denoisers = denoiserDescs;
+    instanceCreationDesc.denoisersNum = dim(denoiserDescs);
 
-    nrd::Result res = nrd::CreateDenoiser(denoiserCreationDesc, m_Denoiser);
+    nrd::Result res = nrd::CreateInstance(instanceCreationDesc, m_Instance);
     if (res != nrd::Result::SUCCESS)
         return false;
 
-    const nrd::DenoiserDesc& denoiserDesc = nrd::GetDenoiserDesc(*m_Denoiser); 
+    const nrd::InstanceDesc& instanceDesc = nrd::GetInstanceDesc(*m_Instance); 
 
     const nvrhi::BufferDesc constantBufferDesc = nvrhi::utils::CreateVolatileConstantBufferDesc(
-        denoiserDesc.constantBufferMaxDataSize, 
+        instanceDesc.constantBufferMaxDataSize,
         "NrdConstantBuffer", 
-        denoiserDesc.descriptorPoolDesc.setsMaxNum * 4);
+        instanceDesc.descriptorPoolDesc.setsMaxNum * 4);
 
     m_ConstantBuffer = m_Device->createBuffer(constantBufferDesc);
 
-    for (uint32_t samplerIndex = 0; samplerIndex < denoiserDesc.samplersNum; samplerIndex++)
+    for (uint32_t samplerIndex = 0; samplerIndex < instanceDesc.samplersNum; samplerIndex++)
     {
-        const nrd::Sampler& samplerMode = denoiserDesc.samplers[samplerIndex];
+        const nrd::Sampler& samplerMode = instanceDesc.samplers[samplerIndex];
 
         nvrhi::SamplerAddressMode addressMode = nvrhi::SamplerAddressMode::Wrap;
         bool filter = false;
@@ -171,9 +181,9 @@ bool NrdIntegration::Initialize(uint32_t width, uint32_t height, donut::engine::
         m_Samplers.push_back(sampler);
     }
 
-    for (uint32_t pipelineIndex = 0; pipelineIndex < denoiserDesc.pipelinesNum; pipelineIndex++)
+    for (uint32_t pipelineIndex = 0; pipelineIndex < instanceDesc.pipelinesNum; pipelineIndex++)
     {
-        const nrd::PipelineDesc& nrdPipelineDesc = denoiserDesc.pipelines[pipelineIndex];
+        const nrd::PipelineDesc& nrdPipelineDesc = instanceDesc.pipelines[pipelineIndex];
 
         std::string fileName = std::string("nrd/RayTracingDenoiser/Shaders/Source/") + nrdPipelineDesc.shaderFileName;
         std::vector<donut::engine::ShaderMacro> macros = { {"NRD_COMPILER_DXC", "1"}, {"NRD_NORMAL_ENCODING", "2"}, {"NRD_ROUGHNESS_ENCODING", "1"} };
@@ -192,17 +202,17 @@ bool NrdIntegration::Initialize(uint32_t width, uint32_t height, donut::engine::
 
         nvrhi::BindingLayoutItem constantBufferItem = {};
         constantBufferItem.type = nvrhi::ResourceType::VolatileConstantBuffer;
-        constantBufferItem.slot = denoiserDesc.constantBufferRegisterIndex;
+        constantBufferItem.slot = instanceDesc.constantBufferRegisterIndex;
         layoutDesc.bindings.push_back(constantBufferItem);
 
-        assert(denoiserDesc.samplersSpaceIndex == 0);
-        for (uint32_t samplerIndex = 0; samplerIndex < denoiserDesc.samplersNum; samplerIndex++)
+        assert(instanceDesc.samplersSpaceIndex == 0);
+        for (uint32_t samplerIndex = 0; samplerIndex < instanceDesc.samplersNum; samplerIndex++)
         {
             //const nrd::StaticSamplerDesc& nrdStaticSampler = denoiserDesc.samplers[samplerIndex];
 
             nvrhi::BindingLayoutItem samplerItem = {};
             samplerItem.type = nvrhi::ResourceType::Sampler;
-            samplerItem.slot = denoiserDesc.samplersBaseRegisterIndex + samplerIndex;
+            samplerItem.slot = instanceDesc.samplersBaseRegisterIndex + samplerIndex;
             layoutDesc.bindings.push_back(samplerItem);
         }
 
@@ -254,15 +264,15 @@ bool NrdIntegration::Initialize(uint32_t width, uint32_t height, donut::engine::
     }
 
 
-    const uint32_t poolSize = denoiserDesc.permanentPoolSize + denoiserDesc.transientPoolSize;
+    const uint32_t poolSize = instanceDesc.permanentPoolSize + instanceDesc.transientPoolSize;
 
     for (uint32_t i = 0; i < poolSize; i++)
     {
-        const bool isPermanent = (i < denoiserDesc.permanentPoolSize);
+        const bool isPermanent = (i < instanceDesc.permanentPoolSize);
 
         const nrd::TextureDesc& nrdTextureDesc = isPermanent 
-            ? denoiserDesc.permanentPool[i] 
-            : denoiserDesc.transientPool[i - denoiserDesc.permanentPoolSize];
+            ? instanceDesc.permanentPool[i]
+            : instanceDesc.transientPool[i - instanceDesc.permanentPoolSize];
 
         const nvrhi::Format format = GetNvrhiFormat(nrdTextureDesc.format);
 
@@ -273,7 +283,7 @@ bool NrdIntegration::Initialize(uint32_t width, uint32_t height, donut::engine::
         }
 
         std::stringstream ss;
-        ss << "NRD " << (isPermanent ? "Permanent" : "Transient") << "Texture [" << (isPermanent ? i : i - denoiserDesc.permanentPoolSize) << "]";
+        ss << "NRD " << (isPermanent ? "Permanent" : "Transient") << "Texture [" << (isPermanent ? i : i - instanceDesc.permanentPoolSize) << "]";
 
         nvrhi::TextureDesc textureDesc;
         textureDesc.width = nrdTextureDesc.width;
@@ -325,11 +335,12 @@ void NrdIntegration::RunDenoiserPasses(
     float disocclusionThreshold,
     float disocclusionThresholdAlternate,
     bool useDisocclusionThresholdAlternateMix,
+    bool enableValidation,
     const void* methodSettings)
 {
     if (methodSettings)
     {
-        nrd::SetMethodSettings(*m_Denoiser, m_Method, methodSettings);
+        nrd::SetDenoiserSettings(*m_Instance, m_Identifier, methodSettings);
     }
 
     nrd::CommonSettings commonSettings;
@@ -339,24 +350,29 @@ void NrdIntegration::RunDenoiserPasses(
     MatrixToNrd(commonSettings.viewToClipMatrixPrev, viewPrev.GetProjectionMatrix(false));
 
     dm::float2 pixelOffset = view.GetPixelOffset();
+    dm::float2 prevPixelOffset = viewPrev.GetPixelOffset();
     commonSettings.isMotionVectorInWorldSpace = false;
     commonSettings.motionVectorScale[0] = (commonSettings.isMotionVectorInWorldSpace)?(1.f):(1.f / view.GetViewExtent().width());
     commonSettings.motionVectorScale[1] = (commonSettings.isMotionVectorInWorldSpace)?(1.f):(1.f / view.GetViewExtent().height());
     commonSettings.motionVectorScale[2] = 1.0f;
     commonSettings.cameraJitter[0] = pixelOffset.x;
     commonSettings.cameraJitter[1] = pixelOffset.y;
+    commonSettings.cameraJitterPrev[0] = prevPixelOffset.x;
+    commonSettings.cameraJitterPrev[1] = prevPixelOffset.y;
     commonSettings.frameIndex = frameIndex;
     commonSettings.denoisingRange = kMaxSceneDistance * 2;   // with various bounces (in non-primary planes or with PSR) the virtual view Z can be much longer, so adding 2x!
-    commonSettings.enableValidation = renderTargets.DenoiserOutValidation != nullptr;
+    commonSettings.enableValidation = enableValidation && renderTargets.DenoiserOutValidation != nullptr;
     commonSettings.disocclusionThreshold = disocclusionThreshold;
     commonSettings.disocclusionThresholdAlternate = disocclusionThresholdAlternate;
     commonSettings.isDisocclusionThresholdMixAvailable = useDisocclusionThresholdAlternateMix;
 
+    nrd::SetCommonSettings(*m_Instance, commonSettings);
+
     const nrd::DispatchDesc* dispatchDescs = nullptr;
     uint32_t dispatchDescNum = 0;
-    nrd::GetComputeDispatches(*m_Denoiser, commonSettings, dispatchDescs, dispatchDescNum);
+    nrd::GetComputeDispatches(*m_Instance, &m_Identifier, 1, dispatchDescs, dispatchDescNum);
 
-    const nrd::DenoiserDesc& denoiserDesc = nrd::GetDenoiserDesc(*m_Denoiser);
+    const nrd::InstanceDesc& instanceDesc = nrd::GetInstanceDesc(*m_Instance);
 
     for (uint32_t dispatchIndex = 0; dispatchIndex < dispatchDescNum; dispatchIndex++)
     {
@@ -371,15 +387,15 @@ void NrdIntegration::RunDenoiserPasses(
         commandList->writeBuffer(m_ConstantBuffer, dispatchDesc.constantBufferData, dispatchDesc.constantBufferDataSize);
 
         nvrhi::BindingSetDesc setDesc;
-        setDesc.bindings.push_back(nvrhi::BindingSetItem::ConstantBuffer(denoiserDesc.constantBufferRegisterIndex, m_ConstantBuffer));
+        setDesc.bindings.push_back(nvrhi::BindingSetItem::ConstantBuffer(instanceDesc.constantBufferRegisterIndex, m_ConstantBuffer));
 
-        for (uint32_t samplerIndex = 0; samplerIndex < denoiserDesc.samplersNum; samplerIndex++)
+        for (uint32_t samplerIndex = 0; samplerIndex < instanceDesc.samplersNum; samplerIndex++)
         {
             assert(m_Samplers[samplerIndex]);
-            setDesc.bindings.push_back(nvrhi::BindingSetItem::Sampler(denoiserDesc.samplersBaseRegisterIndex + samplerIndex, m_Samplers[samplerIndex]));
+            setDesc.bindings.push_back(nvrhi::BindingSetItem::Sampler(instanceDesc.samplersBaseRegisterIndex + samplerIndex, m_Samplers[samplerIndex]));
         }
 
-        const nrd::PipelineDesc& nrdPipelineDesc = denoiserDesc.pipelines[dispatchDesc.pipelineIndex];
+        const nrd::PipelineDesc& nrdPipelineDesc = instanceDesc.pipelines[dispatchDesc.pipelineIndex];
         uint32_t resourceIndex = 0;
 
         for (uint32_t descriptorRangeIndex = 0; descriptorRangeIndex < nrdPipelineDesc.resourceRangesNum; descriptorRangeIndex++)

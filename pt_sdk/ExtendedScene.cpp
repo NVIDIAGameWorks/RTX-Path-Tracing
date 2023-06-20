@@ -132,6 +132,24 @@ bool ExtendedScene::LoadWithExecutor(const std::filesystem::path& jsonFileName, 
 
     ProcessNodesRecursive( GetSceneGraph()->GetRootNode().get() );
 
+#if 1 // example of modifying all materials after scene loading; this is the ideal place to do material modification without worrying about resetting relevant caches/dependencies
+    auto& materials = m_SceneGraph->GetMaterials();
+    for( auto it : materials )
+    {
+        Material & mat = *it;
+#if 0 // convert transmissive to white opaque
+        if (mat.domain == MaterialDomain::Transmissive || mat.domain == MaterialDomain::TransmissiveAlphaBlended || mat.domain == MaterialDomain::TransmissiveAlphaTested)
+        {
+            mat.baseOrDiffuseColor = float3(1,1,1);
+            mat.enableBaseOrDiffuseTexture = false;
+        }
+        if (mat.domain == MaterialDomain::Transmissive) mat.domain = MaterialDomain::Opaque;
+        if (mat.domain == MaterialDomain::TransmissiveAlphaBlended) mat.domain = MaterialDomain::AlphaBlended;
+        if (mat.domain == MaterialDomain::TransmissiveAlphaTested)  mat.domain = MaterialDomain::AlphaTested;
+#endif
+    }
+#endif
+
     return true;
 }
 
@@ -282,5 +300,9 @@ void SampleSettings::Load(const Json::Value& node)
     node["enableRTXDI"] >> enableRTXDI;
     node["startingCamera"] >> startingCamera;
     node["realtimeFireflyFilter"] >> realtimeFireflyFilter;
+    node["maxBounces"] >> maxBounces;
+    node["realtimeMaxDiffuseBounces"] >> realtimeMaxDiffuseBounces;
+    node["referenceMaxDiffuseBounces"] >> referenceMaxDiffuseBounces;
+    node["textureMIPBias"] >> textureMIPBias;
 }
 

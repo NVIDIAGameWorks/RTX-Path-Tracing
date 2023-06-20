@@ -78,9 +78,7 @@ private:
     std::unique_ptr<donut::engine::BindingCache> m_BindingCache;
     nvrhi::CommandListHandle                    m_CommandList;
     nvrhi::BindingLayoutHandle                  m_BindingLayout;
-    nvrhi::BindingSetHandle                     m_PingBindingSet;
-	nvrhi::BindingSetHandle                     m_PongBindingSet;
-    bool                                        m_PingActive        = true;
+    nvrhi::BindingSetHandle                     m_BindingSet;
     nvrhi::BindingLayoutHandle                  m_BindlessLayout;
 
     std::unique_ptr<donut::render::TemporalAntiAliasingPass> m_TemporalAntiAliasingPass;
@@ -166,9 +164,6 @@ private:
     nvrhi::ShaderHandle                         m_ExportVBufferCS;
     nvrhi::ComputePipelineHandle                m_ExportVBufferPSO;
 
-    nvrhi::ShaderHandle                         m_ReSTIRApplyCS;
-    nvrhi::ComputePipelineHandle                m_ReSTIRApplyPSO;
-
     // texture compression: used but not compressed textures
     std::map<std::shared_ptr<donut::engine::LoadedTexture>, TextureCompressionType> m_UncompressedTextures;
 
@@ -202,6 +197,9 @@ public:
     bool                                    CompressTextures();
     void                                    SaveCurrentCamera();
     void                                    LoadCurrentCamera();
+
+    float                                   GetCameraVerticalFOV() const            { return m_CameraVerticalFOV; }
+    void                                    SetCameraVerticalFOV(float cameraFOV)   { m_CameraVerticalFOV = cameraFOV; }
 
     float                                   GetAvgTimePerFrame() const;
 

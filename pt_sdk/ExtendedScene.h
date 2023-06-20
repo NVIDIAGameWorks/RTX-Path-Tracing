@@ -87,6 +87,10 @@ namespace donut::engine
         std::optional<bool>         enableRTXDI;
         std::optional<int>          startingCamera;
         std::optional<float>        realtimeFireflyFilter;
+        std::optional<int>          maxBounces;
+        std::optional<int>          realtimeMaxDiffuseBounces;
+        std::optional<int>          referenceMaxDiffuseBounces;
+        std::optional<float>        textureMIPBias;
 
         [[nodiscard]] std::shared_ptr<SceneGraphLeaf> Clone() override;
         void Load(const Json::Value& node) override;

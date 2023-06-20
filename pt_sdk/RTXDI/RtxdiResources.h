@@ -36,8 +36,6 @@ public:
     nvrhi::BufferHandle RisLightDataBuffer;
     nvrhi::BufferHandle NeighborOffsetsBuffer;
     nvrhi::BufferHandle LightReservoirBuffer;
-    nvrhi::BufferHandle SecondarySurfaceBuffer;
-    nvrhi::BufferHandle SurfaceDataBuffer;
     nvrhi::BufferHandle GIReservoirBuffer;
     nvrhi::TextureHandle EnvironmentPdfTexture;
     nvrhi::TextureHandle LocalLightPdfTexture;

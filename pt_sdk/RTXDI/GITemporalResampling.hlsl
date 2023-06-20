@@ -10,7 +10,6 @@
 
 #pragma pack_matrix(row_major)
 
-#define RAB_FOR_RESTIR_GI_PASS
 #define NON_PATH_TRACING_PASS 1
 
 // Only enable the boiling filter for RayQuery (compute shader) mode because it requires shared memory
@@ -43,7 +42,7 @@ void main(uint2 GlobalIndex : SV_DispatchThreadID, uint2 LocalIndex : SV_GroupTh
             u_SecondarySurfaceRadiance[pixelPosition].xyz,
             /* samplePdf = */ 1.0);
         
-        if (g_RtxdiBridgeConst.enableTemporalResampling)
+        if (g_RtxdiBridgeConst.reStirGI.enableTemporalResampling)
         {
             RAB_RandomSamplerState rng = RAB_InitRandomSampler(pixelPosition, 5);
 
@@ -53,13 +52,13 @@ void main(uint2 GlobalIndex : SV_DispatchThreadID, uint2 LocalIndex : SV_GroupTh
 
             RTXDI_GITemporalResamplingParameters tparams;
             tparams.screenSpaceMotion = motionVector;
-            tparams.sourceBufferIndex = g_RtxdiBridgeConst.temporalInputBufferIndex;
-            tparams.maxHistoryLength = g_RtxdiBridgeConst.maxHistoryLength;
-            tparams.maxReservoirAge = g_RtxdiBridgeConst.maxReservoirAge;
-            tparams.depthThreshold = g_RtxdiBridgeConst.temporalDepthThreshold;
-            tparams.normalThreshold = g_RtxdiBridgeConst.temporalNormalThreshold;
-            tparams.enablePermutationSampling = g_RtxdiBridgeConst.enablePermutationSampling;
-            tparams.enableFallbackSampling = g_RtxdiBridgeConst.enableFallbackSampling;
+            tparams.sourceBufferIndex = g_RtxdiBridgeConst.reStirGI.temporalInputBufferIndex;
+            tparams.maxHistoryLength = g_RtxdiBridgeConst.reStirGI.maxHistoryLength;
+            tparams.maxReservoirAge = g_RtxdiBridgeConst.reStirGI.maxReservoirAge;
+            tparams.depthThreshold = g_RtxdiBridgeConst.reStirGI.temporalDepthThreshold;
+            tparams.normalThreshold = g_RtxdiBridgeConst.reStirGI.temporalNormalThreshold;
+            tparams.enablePermutationSampling = g_RtxdiBridgeConst.reStirGI.enablePermutationSampling;
+            tparams.enableFallbackSampling = g_RtxdiBridgeConst.reStirGI.enableFallbackSampling;
             
             resultReservoir = RTXDI_GITemporalResampling(pixelPosition, currentSurface, initialSample,
                 rng, tparams, runtimeParams);
@@ -86,12 +85,12 @@ void main(uint2 GlobalIndex : SV_DispatchThreadID, uint2 LocalIndex : SV_GroupTh
     }
 
 #ifdef RTXDI_ENABLE_BOILING_FILTER
-    if  (g_RtxdiBridgeConst.boilingFilterStrength > 0)
+    if  (g_RtxdiBridgeConst.reStirGI.boilingFilterStrength > 0)
     {
-        RTXDI_GIBoilingFilter(LocalIndex, g_RtxdiBridgeConst.boilingFilterStrength, runtimeParams, resultReservoir);
+        RTXDI_GIBoilingFilter(LocalIndex, g_RtxdiBridgeConst.reStirGI.boilingFilterStrength, runtimeParams, resultReservoir);
     }
 #endif
 
     RTXDI_StoreGIReservoir(resultReservoir, runtimeParams, pixelPosition,
-        g_RtxdiBridgeConst.temporalOutputBufferIndex);
+        g_RtxdiBridgeConst.reStirGI.temporalOutputBufferIndex);
 }

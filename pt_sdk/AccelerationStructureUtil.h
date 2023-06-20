@@ -73,7 +73,7 @@ namespace bvh
                 const OmmAttachment& omm = (*ommAttachment)[geomIt];
                 triangles.opacityMicromap = omm.ommBuffer;
                 triangles.ommIndexBuffer = omm.ommIndexBuffer;
-                triangles.ommIndexBufferOffset = 0;
+                triangles.ommIndexBufferOffset = omm.ommIndexBufferOffset;
                 triangles.ommIndexFormat = omm.ommIndexFormat;
                 triangles.pOmmUsageCounts = omm.ommIndexHistogram.data();
                 triangles.numOmmUsageCounts = (uint32_t)omm.ommIndexHistogram.size();

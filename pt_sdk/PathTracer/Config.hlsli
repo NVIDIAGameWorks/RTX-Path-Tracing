@@ -35,14 +35,14 @@
 #define LOD_TEXTURE_SAMPLER_RAY_CONES           2
 #define ACTIVE_LOD_TEXTURE_SAMPLER              LOD_TEXTURE_SAMPLER_RAY_CONES  // LOD_TEXTURE_SAMPLER_EXPLICIT
 
-// STABLE_PLANES_MODE options
-#define STABLE_PLANES_DISABLED                  0       // stable planes ignored
-#define STABLE_PLANES_BUILD_PASS                1       // stable planes being built: only non-noisy rays (roughness close to 0) traced akin to Whitted-style ray-tracing, stopping at diffuse vertices and setting up denoising planes; all emissive collected and stable
-#define STABLE_PLANES_NOISY_PASS                2       // standard noisy ray tracing, except it tracks the stable path that matches planes built in _BUILD_PASS, and deposits radiance accordingly (and ignores previously captured stable emissive)
+// PATH_TRACER_MODE options
+#define PATH_TRACER_MODE_REFERENCE              0       // stable planes ignored
+#define PATH_TRACER_MODE_BUILD_STABLE_PLANES    1       // stable planes being built: only non-noisy rays (roughness close to 0) traced akin to Whitted-style ray-tracing, stopping at diffuse vertices and setting up denoising planes; all emissive collected and stable
+#define PATH_TRACER_MODE_FILL_STABLE_PLANES     2       // standard noisy ray tracing, except it tracks the stable path that matches planes built in _BUILD_ pass, and deposits radiance accordingly (and ignores previously captured stable emissive)
 
-#define DEBUG_VIZ_MIP_COLORS                    false   // use to display mip-based gradient instead of base color
+#define DEBUG_VIZ_MIP_COLORS                    false   // use to display mip-based gradient instead of base color !!! DISABLED IN THE LAST REFACTORING !!!
 
-// there's a significant cost to enabling these
+// there's a significant cost to enabling these; #ifdef _DEBUG unfortunately doesn't work because it's never defined for shaders :(
 #define ENABLE_DEBUG_VIZUALISATION              1       // added cost is up to 5%
 #define ENABLE_DEBUG_DELTA_TREE_VIZUALISATION   0       // added cost can be over 10%; requires ENABLE_DEBUG_VIZUALISATION to be enabled < !!!! currently disabled because it's buggy - needs a refactor
 #define ENABLE_DEBUG_RTXDI_VIZUALISATION        0       // added cost is ~5%; requires ENABLE_DEBUG_VIZUALISATION to be enabled
@@ -58,24 +58,11 @@
 #define NON_PATH_TRACING_PASS 0
 #endif
 
-// some stuff we haven't ported yet
-// ["MATERIAL_SYSTEM_BUFFER_DESC_COUNT"]	"22"
-// ["MATERIAL_SYSTEM_HAS_SPEC_GLOSS_MATERIALS"]	"0"
-// ["MATERIAL_SYSTEM_SAMPLER_DESC_COUNT"]	"256"
-// ["MATERIAL_SYSTEM_TEXTURE_DESC_COUNT"]	"132"
-// ["SCENE_GEOMETRY_TYPES"]	"2"
-// ["SCENE_GRID_COUNT"]	"0"
-// ["SCENE_HAS_16BIT_INDICES"]	"1"
-// ["SCENE_HAS_32BIT_INDICES"]	"0"
-// ["SCENE_HAS_INDEXED_VERTICES"]	"1"
-
 // for NVAPI integration
 #define NV_SHADER_EXTN_SLOT                 u127    // pick an arbitrary unused slot
 #define NV_SHADER_EXTN_SLOT_NUM             127     // must match NV_SHADER_EXTN_SLOT_NUM
 #define NV_SHADER_EXTN_REGISTER_SPACE       space0  // pick an arbitrary unused space
 #define NV_SHADER_EXTN_REGISTER_SPACE_NUM   0       // must match NV_SHADER_EXTN_REGISTER_SPACE
-
-#define USING_STATELESS_SAMPLE_GENERATOR    1
 
 #if !defined(__cplusplus) // not needed in the port so far
 // user-specific conversion between 32bit uint path ID and pixel location (other things can get packed in if needed)

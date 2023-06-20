@@ -41,6 +41,7 @@ enum class DebugViewType : int
     StablePlaneDiffRadianceDenoised,
     StablePlaneSpecRadianceDenoised,
     StablePlaneCombinedRadianceDenoised,
+    StablePlaneViewZ,
     StablePlaneDenoiserValidation,
     
     StableRadiance,
@@ -68,6 +69,9 @@ enum class DebugViewType : int
     SecondarySurfaceRadiance,
     ReSTIRGIOutput,
 
+    ReSTIRDIInitialOutput,
+    ReSTIRDIFinalOutput,
+
     MaxCount
 };
 
@@ -84,8 +88,8 @@ struct DebugConstants
     int     exploreDeltaTree;
     int     imageWidth;
     int     imageHeight;
-    int     padding0;
-    int     padding1;
+    int     mouseX;
+    int     mouseY;
 };
 
 #define MAX_DEBUG_PRINT_SLOTS   16
@@ -336,58 +340,105 @@ struct DebugContext
         if( (constants.debugViewType < (int)DebugViewType::ImagePlaneRayLength || constants.debugViewType > (int)DebugViewType::StablePlaneSpecHitDist) && constants.debugViewType != (int)DebugViewType::StableRadiance )
             return;
 
-        uint4 spHeader = stablePlanes.LoadStablePlanesHeader(pixelPos);
-
-        float3 stableRadiance = stablePlanes.LoadStableRadiance(pixelPos);
-        StablePlane sp;
-        PackedHitInfo packedHitInfo; float3 rayDir; uint vertexIndex; uint SERSortKey; float sceneLength; float3 thp; float3 motionVectors;
-        uint stableBranchID = cStablePlaneInvalidBranchID; 
+        float4 outColor = 0;
         
-        uint3 displayPos = uint3(pixelPos, 0);
-        // split only valid for per-plane data
-        if ( constants.debugViewType >= (int)DebugViewType::StablePlaneVirtualRayLength && constants.debugViewType <= (int)DebugViewType::StablePlaneSpecHitDist )
-            displayPos = StablePlaneDebugVizFourWaySplitCoord(constants.debugViewStablePlaneIndex, pixelPos, uint2(constants.imageWidth, constants.imageHeight));
-        if ( displayPos.z < cStablePlaneCount ) 
+        // debug viz section
         {
-            stablePlanes.LoadStablePlane(displayPos.xy, displayPos.z, false, vertexIndex, packedHitInfo, SERSortKey, stableBranchID, rayDir, sceneLength, thp, motionVectors);
-            sp = stablePlanes.LoadStablePlane(displayPos.xy, displayPos.z, false);
+            uint stableBranchID = cStablePlaneInvalidBranchID; 
+        
+            uint3 displayPos = uint3(pixelPos, 0);
+
+            // split only valid for per-plane data
+            if ( constants.debugViewType >= (int)DebugViewType::StablePlaneVirtualRayLength && constants.debugViewType <= (int)DebugViewType::StablePlaneSpecHitDist )
+                displayPos = StablePlaneDebugVizFourWaySplitCoord(constants.debugViewStablePlaneIndex, pixelPos, uint2(constants.imageWidth, constants.imageHeight));
+            if ( displayPos.z < cStablePlaneCount ) 
+                stableBranchID = stablePlanes.GetBranchID(displayPos.xy, displayPos.z);
+
+            if (stableBranchID == cStablePlaneInvalidBranchID)
+            {
+                outColor = float4( ((pixelPos.x+pixelPos.y)%2).xxx, 1 );   // just dump checkerboard pattern
+            }
+            else
+            {
+                StablePlane sp = stablePlanes.LoadStablePlane(displayPos.xy, displayPos.z);
+
+                PackedHitInfo packedHitInfo; float3 rayDir; uint vertexIndex; uint SERSortKey; float sceneLength; float3 thp; float3 motionVectors;
+                StablePlanesContext::UnpackStablePlane( sp, vertexIndex, packedHitInfo, SERSortKey, rayDir, sceneLength, thp, motionVectors );
+
+                float rangeVizScale = 1.0 / 100.0;   // repeat pattern every 10 units
+
+                float3 diffBSDFEstimate; float3 specBSDFEstimate;
+                UnpackTwoFp32ToFp16( sp.DenoiserPackedBSDFEstimate, diffBSDFEstimate, specBSDFEstimate );
+
+                float firstHitRayLength = stablePlanes.LoadFirstHitRayLength(pixelPos);
+
+                float3 firstHitRayLengthCol = (firstHitRayLength>=kMaxRayTravel*0.99)?float3(0,0.5,1):(frac(rangeVizScale*firstHitRayLength).xxx);
+                float3 sceneLengthCol = (sceneLength>=kMaxRayTravel*0.99)?float3(0,0.5,1):(frac(rangeVizScale*sceneLength).xxx);
+
+                float4 diffht, specht; UnpackTwoFp32ToFp16(sp.DenoiserPackedRadianceHitDist, diffht, specht);
+
+                uint dominantSP = stablePlanes.LoadDominantIndexCenter();
+
+                float3 stableRadiance = stablePlanes.LoadStableRadiance(pixelPos);
+
+                switch (constants.debugViewType)
+                {
+                case ((int)DebugViewType::ImagePlaneRayLength):                 outColor = float4( firstHitRayLengthCol, 1 ); break;
+                case ((int)DebugViewType::DominantStablePlaneIndex):            outColor = float4( StablePlaneDebugVizColor(dominantSP), 1); break;
+                case ((int)DebugViewType::StablePlaneVirtualRayLength):         outColor = float4( sceneLengthCol, 1 ); break;
+                case ((int)DebugViewType::StablePlaneMotionVectors):            outColor = float4( 0.5 + motionVectors.xyz * float3(0.2, 0.2, 10), 1 ); break;
+                case ((int)DebugViewType::StablePlaneNormals):                  outColor = float4( DbgShowNormalSRGB(sp.DenoiserNormalRoughness.xyz), 1 ); break;
+                case ((int)DebugViewType::StablePlaneRoughness):                outColor = float4( sp.DenoiserNormalRoughness.www, 1 ); break;
+                case ((int)DebugViewType::StablePlaneDiffBSDFEstimate):         outColor = float4( diffBSDFEstimate, 1 ); break;
+                case ((int)DebugViewType::StablePlaneDiffRadiance):             outColor = float4( diffht.rgb / diffBSDFEstimate, 1 ); break;
+                case ((int)DebugViewType::StablePlaneDiffHitDist):              outColor = float4( rangeVizScale*diffht.www, 1 ); break;
+                case ((int)DebugViewType::StablePlaneSpecBSDFEstimate):         outColor = float4( specBSDFEstimate, 1 ); break;
+                case ((int)DebugViewType::StablePlaneSpecRadiance):             outColor = float4( specht.rgb / specBSDFEstimate, 1 ); break;
+                case ((int)DebugViewType::StablePlaneSpecHitDist):              outColor = float4( rangeVizScale*specht.www, 1 ); break;
+                case ((int)DebugViewType::StableRadiance):                      outColor = float4( stablePlanes.LoadStableRadiance(pixelPos), 1 ); break;
+                }
+            }
         }
-        if (stableBranchID == cStablePlaneInvalidBranchID)
+
+        // mouse cursor info
         {
-            DrawDebugViz( float4( ((pixelPos.x+pixelPos.y)%2).xxx, 1 ) );   // just dump checkerboard pattern
-            return;
+            uint2 mousePos = float2(constants.mouseX, constants.mouseY);
+            uint3 mouseSrcPos = uint3(pixelPos, 0);
+            if ( constants.debugViewType >= (int)DebugViewType::StablePlaneVirtualRayLength && constants.debugViewType <= (int)DebugViewType::StablePlaneSpecHitDist )
+                mouseSrcPos = StablePlaneDebugVizFourWaySplitCoord(constants.debugViewStablePlaneIndex, mousePos, uint2(constants.imageWidth, constants.imageHeight));
+
+            uint stableBranchID = cStablePlaneInvalidBranchID; 
+            if ( mouseSrcPos.z < cStablePlaneCount ) 
+                stableBranchID = stablePlanes.GetBranchID(mouseSrcPos.xy, mouseSrcPos.z);
+
+            if (stableBranchID != cStablePlaneInvalidBranchID)
+            {
+                int detailInfoDigits = 0;
+                float4 detailInfoValue = 0;
+                StablePlane sp = stablePlanes.LoadStablePlane(mouseSrcPos.xy, mouseSrcPos.z);
+                float4 diffht, specht; UnpackTwoFp32ToFp16(sp.DenoiserPackedRadianceHitDist, diffht, specht);
+
+                if ((constants.debugViewType == (int)DebugViewType::StablePlaneDiffHitDist) || (constants.debugViewType == (int)DebugViewType::StablePlaneSpecHitDist))
+                {
+                    detailInfoDigits = 4;
+                    detailInfoValue = (constants.debugViewType == (int)DebugViewType::StablePlaneDiffHitDist)?(diffht):(specht);
+                }
+                const float3 cols[4] = {float3(1,0.2,0.2), float3(0.2,1.0,0.2), float3(0.2,0.2,1.0), float3(1,1,0.2) };
+                for( int d = 0; d < detailInfoDigits; d++)
+                {
+                    int digits = 10;
+                    float2 fontSize = float2(8.0, 15.0); float lineSize = fontSize.x*(digits+2) ;
+                    float fontValue = ShaderDrawFloat(pixelPos, mousePos + float2(lineSize*(d-detailInfoDigits*0.5-0.5), -fontSize.y * 2), fontSize, detailInfoValue[d], digits, 4);
+
+                    outColor = lerp( outColor, float4(cols[d], 1), fontValue);
+                }
+                outColor = lerp( outColor, float4(1, 0, 1, 1), ShaderDrawCrosshair(pixelPos, mousePos, 10, 0.5) );
+            }
         }
 
-        float rangeVizScale = 1.0 / 100.0;   // repeat pattern every 10 units
+        if (outColor.w>0)
+            DrawDebugViz( outColor );
 
-        float3 diffBSDFEstimate; float3 specBSDFEstimate;
-        UnpackTwoFp32ToFp16( sp.DenoiserPackedBSDFEstimate, diffBSDFEstimate, specBSDFEstimate );
-
-        float firstHitRayLength = asfloat(spHeader[3]);
-
-        float3 firstHitRayLengthCol = (firstHitRayLength>=kMaxRayTravel*0.99)?float3(0,0.5,1):(frac(rangeVizScale*firstHitRayLength).xxx);
-        float3 sceneLengthCol = (sceneLength>=kMaxRayTravel*0.99)?float3(0,0.5,1):(frac(rangeVizScale*sceneLength).xxx);
-
-        float4 diffht, specht; UnpackTwoFp32ToFp16(sp.DenoiserPackedRadianceHitDist, diffht, specht);
-
-        uint dominantSP = stablePlanes.LoadDominantIndex();
-
-        switch (constants.debugViewType)
-        {
-        case ((int)DebugViewType::ImagePlaneRayLength):                 DrawDebugViz( float4( firstHitRayLengthCol, 1 ) ); break;
-        case ((int)DebugViewType::DominantStablePlaneIndex):            DrawDebugViz( float4( StablePlaneDebugVizColor(dominantSP), 1)); break;
-        case ((int)DebugViewType::StablePlaneVirtualRayLength):         DrawDebugViz( float4( sceneLengthCol, 1 ) ); break;
-        case ((int)DebugViewType::StablePlaneMotionVectors):            DrawDebugViz( float4( 0.5 + motionVectors.xyz * float3(0.2, 0.2, 10), 1 ) ); break;
-        case ((int)DebugViewType::StablePlaneNormals):                  DrawDebugViz( float4( DbgShowNormalSRGB(sp.DenoiserNormalRoughness.xyz), 1 ) ); break;
-        case ((int)DebugViewType::StablePlaneRoughness):                DrawDebugViz( float4( sp.DenoiserNormalRoughness.www, 1 ) ); break;
-        case ((int)DebugViewType::StablePlaneDiffBSDFEstimate):         DrawDebugViz( float4( diffBSDFEstimate, 1 ) ); break;
-        case ((int)DebugViewType::StablePlaneDiffRadiance):             DrawDebugViz( float4( diffht.rgb / diffBSDFEstimate, 1 ) ); break;
-        case ((int)DebugViewType::StablePlaneDiffHitDist):              DrawDebugViz( float4( rangeVizScale*diffht.www, 1 ) ); break;
-        case ((int)DebugViewType::StablePlaneSpecBSDFEstimate):         DrawDebugViz( float4( specBSDFEstimate, 1 ) ); break;
-        case ((int)DebugViewType::StablePlaneSpecRadiance):             DrawDebugViz( float4( specht.rgb / specBSDFEstimate, 1)); break;
-        case ((int)DebugViewType::StablePlaneSpecHitDist):              DrawDebugViz( float4( rangeVizScale*specht.www, 1 ) ); break;
-        case ((int)DebugViewType::StableRadiance):                      DrawDebugViz( float4( stableRadiance, 1 ) ); break;
-        }
     }
 #endif // #if ENABLE_DEBUG_VIZUALISATION
 

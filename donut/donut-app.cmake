@@ -31,9 +31,16 @@ file(GLOB donut_app_vr_src
     src/app/vr/*.cpp
 )
 
+
+
 add_library(donut_app STATIC EXCLUDE_FROM_ALL ${donut_app_src})
 target_include_directories(donut_app PUBLIC include)
 target_link_libraries(donut_app donut_core donut_engine glfw imgui)
+
+if(STREAMLINE_INTEGRATION)
+target_include_directories(donut_app PUBLIC ${CMAKE_SOURCE_DIR}/external/Streamline/include)
+target_compile_definitions(donut_app PUBLIC STREAMLINE_INTEGRATION)
+endif()
 
 if(DONUT_WITH_DX11)
 target_sources(donut_app PRIVATE src/app/dx11/DeviceManager_DX11.cpp)

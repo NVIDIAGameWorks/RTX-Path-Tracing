@@ -26,7 +26,7 @@ donut_compile_shaders(
     FOLDER ${folder}
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/${project}/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/${project}/spirv
-    INCLUDE ${CMAKE_SOURCE_DIR}/external/RayTracingDenoiser/Shaders/Include
+    INCLUDE ${CMAKE_SOURCE_DIR}/external/RayTracingDenoiser/Shaders/Include ${CMAKE_SOURCE_DIR}/external/RTXDI/rtxdi-sdk/include
 )
 
 add_executable(${project} WIN32 ${sources})
@@ -36,10 +36,19 @@ add_dependencies(${project} pt_sdk_shaders nrd_shaders omm_sdk_shaders)
 endif()
 
 if(STREAMLINE_INTEGRATION)
+set(SL_DLLS
+    ${CMAKE_SOURCE_DIR}/external/Streamline/bin/x64/nvngx_dlss.dll
+    ${CMAKE_SOURCE_DIR}/external/Streamline/bin/x64/nvngx_dlssg.dll
+    ${CMAKE_SOURCE_DIR}/external/Streamline/bin/x64/sl.common.dll
+    ${CMAKE_SOURCE_DIR}/external/Streamline/bin/x64/sl.dlss.dll
+    ${CMAKE_SOURCE_DIR}/external/Streamline/bin/x64/sl.dlss_g.dll
+    ${CMAKE_SOURCE_DIR}/external/Streamline/bin/x64/sl.interposer.dll
+    ${CMAKE_SOURCE_DIR}/external/Streamline/bin/x64/sl.nis.dll
+    ${CMAKE_SOURCE_DIR}/external/Streamline/bin/x64/sl.reflex.dll
+)
 add_compile_definitions(STREAMLINE_INTEGRATION)
 add_library(sl.interposer STATIC IMPORTED)
 set_property(TARGET sl.interposer PROPERTY IMPORTED_LOCATION ../../external/Streamline/lib/x64/sl.interposer.lib)
-file(GLOB SL_DLLS ${CMAKE_CURRENT_SOURCE_DIR}/../external/Streamline/bin/x64/*.dll)
 file(COPY ${SL_DLLS} DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 target_link_libraries(${project} donut_render donut_app donut_engine NRD rtxdi-sdk omm-sdk omm-sdk-nvrhi sl.interposer)
 else()

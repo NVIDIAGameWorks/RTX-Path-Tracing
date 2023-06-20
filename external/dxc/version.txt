@@ -1,1 +1,1 @@
-https://github.com/microsoft/DirectXShaderCompiler/releases/tag/v1.7.2207
+https://github.com/microsoft/DirectXShaderCompiler/tree/v1.7.2212.1

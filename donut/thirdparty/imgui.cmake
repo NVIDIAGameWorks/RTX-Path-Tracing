@@ -31,7 +31,12 @@ set(imgui_srcs
     ${CMAKE_CURRENT_SOURCE_DIR}/imgui/imstb_rectpack.h
     ${CMAKE_CURRENT_SOURCE_DIR}/imgui/imstb_textedit.h
     ${CMAKE_CURRENT_SOURCE_DIR}/imgui/imstb_truetype.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_demo.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_demo.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/imgui/imnodes/ImNodes.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/imgui/imnodes/ImNodes.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/imgui/imnodes/ImNodesEz.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/imgui/imnodes/ImNodesEz.cpp)
 
 add_library(imgui STATIC ${imgui_srcs})
 target_include_directories(imgui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
+target_include_directories(imgui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/imgui/imnodes)

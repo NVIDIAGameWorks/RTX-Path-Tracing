@@ -211,7 +211,7 @@ static uint16_t fp32ToFp16(float v)
     return (uint16_t)(sign >> 16 | body >> 13) & 0xFFFF;
 }
 
-static bool ConvertLight(const donut::engine::Light& light, PolymorphicLightInfo& polymorphic, bool enableImportanceSampledEnvironmentLight)
+static bool ConvertLight(const donut::engine::Light& light, PolymorphicLightInfo& polymorphic, bool enableImportanceSampledEnvironmentLight, EnvironmentMap* environmentMap)
 {
     switch (light.GetLightType())
     {
@@ -318,10 +318,12 @@ static bool ConvertLight(const donut::engine::Light& light, PolymorphicLightInfo
                 return false;*/
 
             polymorphic.colorTypeAndFlags = (uint32_t)PolymorphicLightType::kEnvironment << kPolymorphicLightTypeShift;
-            packLightColor(env.radianceScale, polymorphic);
+         /*   packLightColor(env.radianceScale, polymorphic);
             polymorphic.direction1 = (uint32_t)env.textureIndex;
             polymorphic.scalars = fp32ToFp16(env.rotation);
-            polymorphic.scalars |= (1 << 16);
+            polymorphic.scalars |= (1 << 16);*/
+            const uint2 envMapDimensions = environmentMap->GetEnvMapDimensions();
+            polymorphic.direction2 = envMapDimensions.x | (envMapDimensions.y << 16);
 
             return true;
         }
@@ -474,7 +476,7 @@ void PrepareLightsPass::Process(
     {
         PolymorphicLightInfo polymorphicLight = {};
        
-        if (!ConvertLight(*pLight, polymorphicLight, enableImportanceSampledEnvironmentLight))
+        if (!ConvertLight(*pLight, polymorphicLight, enableImportanceSampledEnvironmentLight, m_EnvironmentMap.get()))
             continue;
 
         // find the previous offset of this instance in the light buffer
