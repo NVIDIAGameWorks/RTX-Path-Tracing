@@ -41,6 +41,7 @@ public:
 
     nvrhi::TextureHandle DebugVizOutput;
 
+    nvrhi::TextureHandle Throughput;            // when using PSR we need to remember throughput after perfect speculars with color for RTXDI to know how to do its thing correctly
     nvrhi::TextureHandle Depth;                 // exported by path tracer, used by TAA and others
     nvrhi::TextureHandle ScreenMotionVectors;   // screen space motion vectors, exported by path tracer, used by RTXDI, TAA and others
 
@@ -50,9 +51,9 @@ public:
 
     nvrhi::TextureHandle StableRadiance;                    // radiance that doesn't require denoising; this is technically not needed as a separate buffer, but very useful for debug viz
     nvrhi::TextureHandle StablePlanesHeader;
-    nvrhi::TextureHandle PrevStablePlanesHeader;
     nvrhi::BufferHandle  StablePlanesBuffer;
-    nvrhi::BufferHandle  PrevStablePlanesBuffer;
+
+    nvrhi::BufferHandle  SurfaceDataBuffer;
 
     nvrhi::TextureHandle DenoiserDiffRadianceHitDist;       // input to denoiser
     nvrhi::TextureHandle DenoiserSpecRadianceHitDist;       // input to denoiser
@@ -64,9 +65,6 @@ public:
     nvrhi::TextureHandle DenoiserOutDiffRadianceHitDist[cStablePlaneCount]; // output from denoiser, texture per denoiser instance
     nvrhi::TextureHandle DenoiserOutSpecRadianceHitDist[cStablePlaneCount]; // output from denoiser, texture per denoiser instance
     nvrhi::TextureHandle DenoiserOutValidation = nullptr;   // output from denoiser (for validation) - leave nullptr to disable validation
-    
-    nvrhi::TextureHandle RtxdiOutDirectionValidSample;      // output from rtxdi
-    nvrhi::TextureHandle RtxdiOutLiDist;                    // output from rtxdi
 
     nvrhi::TextureHandle SecondarySurfacePositionNormal;    // input to restir gi
     nvrhi::TextureHandle SecondarySurfaceRadiance;          // input to restir gi

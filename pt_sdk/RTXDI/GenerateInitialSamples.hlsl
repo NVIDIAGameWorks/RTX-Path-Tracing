@@ -14,12 +14,6 @@
 
 #include "../../external/RTXDI/rtxdi-sdk/include/rtxdi/ResamplingFunctions.hlsli"
 
-#define ENABLE_DEBUG 0
-
-#if ENABLE_DEBUG
-#include "../PathTracer/ShaderDebug.hlsli"
-#endif
-
 #if USE_RAY_QUERY
 [numthreads(RTXDI_SCREEN_SPACE_GROUP_SIZE, RTXDI_SCREEN_SPACE_GROUP_SIZE, 1)]
 void main(uint2 dispatchThreadID : SV_DispatchThreadID)
@@ -45,12 +39,12 @@ void RayGen()
         return;
   
     RTXDI_SampleParameters sampleParams = RTXDI_InitSampleParameters(
-         g_RtxdiBridgeConst.numPrimaryRegirSamples,
-         g_RtxdiBridgeConst.numPrimaryLocalLightSamples,
-         g_RtxdiBridgeConst.numPrimaryInfiniteLightSamples,
-         g_RtxdiBridgeConst.numPrimaryEnvironmentSamples,
-         g_RtxdiBridgeConst.numPrimaryBrdfSamples,
-         g_RtxdiBridgeConst.brdfCutoff,
+         g_RtxdiBridgeConst.reStirDI.numPrimaryRegirSamples,
+         g_RtxdiBridgeConst.reStirDI.numPrimaryLocalLightSamples,
+         g_RtxdiBridgeConst.reStirDI.numPrimaryInfiniteLightSamples,
+         g_RtxdiBridgeConst.reStirDI.numPrimaryEnvironmentSamples,
+         g_RtxdiBridgeConst.reStirDI.numPrimaryBrdfSamples,
+         g_RtxdiBridgeConst.reStirDI.brdfCutoff,
         0.001f);
 
     RAB_LightSample lightSample;
@@ -60,7 +54,7 @@ void RayGen()
     DebugContext debug;
     debug.Init(pixelPosition, 0, g_Const.debug, u_FeedbackBuffer, u_DebugLinesBuffer, u_DebugDeltaPathTree, u_DeltaPathSearchStack, u_DebugVizOutput);
 #endif
-    if (g_RtxdiBridgeConst.enableInitialVisibility && RTXDI_IsValidReservoir(reservoir))
+    if (g_RtxdiBridgeConst.reStirDI.enableInitialVisibility && RTXDI_IsValidReservoir(reservoir))
     {
         if (!RAB_GetConservativeVisibility(surface, lightSample))
         {
@@ -82,5 +76,19 @@ void RayGen()
         }
 #endif
     }
-    RTXDI_StoreReservoir(reservoir, runtimeParams, dispatchThreadID, g_RtxdiBridgeConst.initialOutputBufferIndex);
+    {
+        // useful for debugging!
+        DebugContext debug;
+        debug.Init(pixelPosition, 0, g_Const.debug, u_FeedbackBuffer, u_DebugLinesBuffer, u_DebugDeltaPathTree, u_DeltaPathSearchStack, u_DebugVizOutput);
+
+        switch (g_Const.debug.debugViewType)
+        {
+        case (int)DebugViewType::ReSTIRDIInitialOutput:
+            float3 Li = lightSample.radiance * RTXDI_GetReservoirInvPdf(reservoir) / lightSample.solidAnglePdf;
+            debug.DrawDebugViz(pixelPosition, float4(Li, 1.0));
+            break;
+        }
+    }
+
+    RTXDI_StoreReservoir(reservoir, runtimeParams, dispatchThreadID, g_RtxdiBridgeConst.reStirDI.initialOutputBufferIndex);
 }

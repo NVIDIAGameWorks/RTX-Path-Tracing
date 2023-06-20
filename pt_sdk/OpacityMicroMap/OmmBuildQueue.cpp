@@ -115,7 +115,7 @@ namespace
 
         size_t Allocate(size_t sizeInBytes, size_t alignment)
         {
-            nvrhi::align(m_offset, alignment);
+            m_offset = nvrhi::align(m_offset, alignment);
             size_t offset = m_offset;
             m_offset += sizeInBytes;
             return offset;
@@ -244,7 +244,7 @@ void OmmBuildQueue::RunSetup(nvrhi::CommandListHandle commandList, BuildTask& ta
         omm::GpuBakeNvrhi::PreDispatchInfo setupInfo;
         m_baker->GetPreDispatchInfo(input, setupInfo);
 
-        commandList->copyBuffer(buffers.ommReadbackBuffer, bufferInfo.ommDescArrayHistogramReadbackOffset,  buffers.ommDescArrayHistogramBuffer,  bufferInfo.ommDescArrayOffset,      setupInfo.ommDescArrayHistogramSize);
+        commandList->copyBuffer(buffers.ommReadbackBuffer, bufferInfo.ommDescArrayHistogramReadbackOffset,  buffers.ommDescArrayHistogramBuffer,  bufferInfo.ommDescArrayHistogramOffset,      setupInfo.ommDescArrayHistogramSize);
         commandList->copyBuffer(buffers.ommReadbackBuffer, bufferInfo.ommIndexHistogramReadbackOffset,  buffers.ommIndexArrayHistogramBuffer, bufferInfo.ommIndexHistogramOffset, setupInfo.ommIndexHistogramSize);
         commandList->copyBuffer(buffers.ommReadbackBuffer, bufferInfo.ommPostDispatchInfoReadbackOffset,   buffers.ommPostDispatchInfoBuffer,       bufferInfo.ommPostDispatchInfoOffset,  setupInfo.ommPostDispatchInfoBufferSize);
     }
@@ -317,7 +317,7 @@ void OmmBuildQueue::RunBakeAndBuild(nvrhi::CommandListHandle commandList, BuildT
             output.ommIndexBuffer                       = task.buffers.ommIndexBuffer;
             output.ommIndexBufferOffset                 = (uint32_t)bufferInfo.ommIndexOffset;
             output.ommDescArrayHistogramBuffer          = task.buffers.ommDescArrayHistogramBuffer;
-            output.ommDescArrayHistogramBufferOffset    = (uint32_t)bufferInfo.ommDescArrayOffset;
+            output.ommDescArrayHistogramBufferOffset    = (uint32_t)bufferInfo.ommDescArrayHistogramOffset;
             output.ommIndexHistogramBuffer              = task.buffers.ommIndexArrayHistogramBuffer;
             output.ommIndexHistogramBufferOffset        = (uint32_t)bufferInfo.ommIndexHistogramOffset;
             output.ommPostDispatchInfoBuffer            = task.buffers.ommPostDispatchInfoBuffer;

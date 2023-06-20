@@ -792,11 +792,8 @@ struct TriangleLight
 
 struct EnvironmentLight
 {
-   /* int textureIndex;
-    bool importanceSampled;
-    float3 radianceScale;
-    float rotation;*/
-
+    uint2 textureSize;
+   
     // Interface methods
 
     PolymorphicLightSample calcSample(in const float2 random, in const float3 viewerPosition)
@@ -814,9 +811,10 @@ struct EnvironmentLight
         pls.normal = -direction;
         pls.radiance = envMap.eval(random);
 
-        float theta = (random.y - 0.5f) * M_PI;
-        float relativeSolidAngle = cos(theta);
-        pls.solidAnglePdf = 1.f / max(FLT_MIN, 2.f * M_PI * M_PI * relativeSolidAngle);
+        float elevation = (random.y - 0.5f) * M_PI;
+        float cosElevation = cos(elevation);
+        // Inverse of the solid angle of one texel of the environment map
+        pls.solidAnglePdf = (textureSize.x * textureSize.y) / max(FLT_MIN, 2.f * M_PI * M_PI * cosElevation);
         return pls;
     }
 
@@ -826,10 +824,8 @@ struct EnvironmentLight
     {
         EnvironmentLight envLight;
 
-       /* envLight.textureIndex = int(lightInfo.direction1);
-        envLight.rotation = f16tof32(lightInfo.scalars);
-        envLight.importanceSampled = ((lightInfo.scalars >> 16) != 0);
-        envLight.radianceScale = unpackLightColor(lightInfo);*/
+        envLight.textureSize.x = lightInfo.direction2 & 0xffff;
+        envLight.textureSize.y = lightInfo.direction2 >> 16;
 
         return envLight;
     }

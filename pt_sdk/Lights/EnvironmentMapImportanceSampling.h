@@ -64,6 +64,7 @@ struct EnvironmentMapImportanceSamplingParameters
 
 		EnvMapData m_EnvMapData;
 		EnvMapSamplerData m_EnvMapSamplerData;
+		uint2 m_EnvMapDimensions;
 
 		void CreateImportanceMap(const uint32_t dimensions, const uint32_t samples);
 		void GenerateImportanceMap(nvrhi::CommandListHandle commandList, const uint32_t dimensions, const uint32_t samples);
@@ -92,6 +93,7 @@ struct EnvironmentMapImportanceSamplingParameters
 		float2 GetImportanceMapInverseDimensions();
 		uint32_t GetImportanceMapIsBaseMip();
 		EnvMapData GetEnvMapData();
+		inline const uint2 GetEnvMapDimensions() { return m_EnvMapDimensions; }
 		void Reset();
 	};
 

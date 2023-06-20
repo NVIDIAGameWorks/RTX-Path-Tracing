@@ -24,6 +24,8 @@ namespace Bridge
     static uint getSampleIndex();
 
     static uint getMaxBounceLimit();
+    
+    static uint getMaxDiffuseBounceLimit();
 
     static Ray computeCameraRay(const uint2 pixelPos);
 
@@ -78,8 +80,6 @@ namespace Bridge
     static bool traceVisibilityRay(RayDesc ray, const RayCone rayCone, const int pathVertexIndex, DebugContext debug);
 
     static void traceScatterRay(const PathState path, inout RayDesc ray, inout RayQuery<RAY_FLAG_NONE> rayQuery, inout PackedHitInfo packedHitInfo, inout int sortKey, DebugContext debug);
-
-    static void getRtxdiDirectionAndDistance(uint2 pixelPos, out float4 dirValid, out float4 LiDistance);
 
     static void StoreSecondarySurfacePositionAndNormal(uint2 pixelCoordinate, float3 worldPos, float3 normal);
 

@@ -25,7 +25,9 @@ const uint32_t kDefaultThreadCount = 16;
 EnvironmentMap::EnvironmentMap(nvrhi::IDevice* device, 
 	std::shared_ptr<donut::engine::TextureCache> textureCache, 
 	std::shared_ptr<donut::engine::ShaderFactory> shaderFactory) 
-	: m_Device(device), m_TextureCache(textureCache), m_ShaderFactory(shaderFactory)
+	: m_Device(device), m_TextureCache(textureCache), 
+	m_ShaderFactory(shaderFactory),
+	m_EnvMapDimensions(0,0)
 {
 	//Create sampler 
 	nvrhi::SamplerDesc samplerDesc;
@@ -85,6 +87,8 @@ void EnvironmentMap::LoadTexture(const std::filesystem::path& path,
 	if (loadedTexture != nullptr && loadedTexture->format != nvrhi::Format::UNKNOWN )
 	{
 		m_EnvironmentMapTexture = loadedTexture;
+		m_EnvMapDimensions.x = m_EnvironmentMapTexture->texture->getDesc().width;
+		m_EnvMapDimensions.y = m_EnvironmentMapTexture->texture->getDesc().height;
 	}
     else
     {

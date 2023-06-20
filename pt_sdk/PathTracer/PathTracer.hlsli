@@ -20,7 +20,7 @@
 #include "StablePlanes.hlsli"
 
 // figure out where to move this so it's not in th emain path tracer code
-#if STABLE_PLANES_MODE==STABLE_PLANES_BUILD_PASS && ENABLE_DEBUG_DELTA_TREE_VIZUALISATION
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES && ENABLE_DEBUG_DELTA_TREE_VIZUALISATION
 void        DeltaTreeVizHandleMiss(inout PathState path, const float3 rayOrigin, const float3 rayDir, const float rayTCurrent, const PathTracerParams params, const AUXContext auxContext);
 void        DeltaTreeVizHandleHit(inout PathState path, const float3 rayOrigin, const float3 rayDir, const float rayTCurrent, const SurfaceData bridgedData, bool rejectedFalseHit, bool hasFinishedSurfaceBounces, float volumeAbsorption, const PathTracerParams params, const AUXContext auxContext);
 #endif
@@ -35,10 +35,8 @@ struct PathTracer
     static const bool           kUseEnvLight                = true;
     static const bool           kUseEmissiveLights          = true;
     static const bool           kUseAnalyticLights          = true;
-    static const bool           kUseRussianRoulette         = true;
     static const bool           kUseBSDFSampling            = true;
     static const bool           kUseLightsInDielectricVolumes = true;       // TODO: remove this switch
-    static const uint           kMaxDiffuseBounces          = 4;
 
     static const MISHeuristic   kMISHeuristic               = MISHeuristic::Balance;
     //static const float          kMISPowerExponent           = 1.5f;
@@ -52,13 +50,6 @@ struct PathTracer
         path.fireflyFilterK         = 1.0;
         path.packedCounters         = 0;
 
-        // Original (from Falcor) is a bit more complex, allowing for multiple samples per pixel; that is not implemented here for simplicity
-#ifndef USING_STATELESS_SAMPLE_GENERATOR
-        path.sg                     = SampleGenerator::make(pixelPos, sampleIndex);
-#else
-        path.sg                     = SampleGenerator::make(pixelPos, 0, sampleIndex);
-#endif
-
         for( uint i = 0; i < INTERIOR_LIST_SLOT_COUNT; i++ )
             path.interiorList.slots[i] = 0;
 
@@ -68,7 +59,7 @@ struct PathTracer
         // path.normal                 = float3(0,0,0);
 
         path.thp                    = float3(1,1,1);
-#if STABLE_PLANES_MODE!=STABLE_PLANES_NOISY_PASS
+#if PATH_TRACER_MODE!=PATH_TRACER_MODE_FILL_STABLE_PLANES
         path.L                      = float3(0,0,0);
 #else
         path.denoiserSampleHitTFromPlane = 0.0;
@@ -83,7 +74,7 @@ struct PathTracer
 
         path.rayCone                = RayCone::make(0, pixelConeSpreadAngle);
 
-#if STABLE_PLANES_MODE==STABLE_PLANES_BUILD_PASS
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES
         path.imageXform             = float3x3( 1.f, 0.f, 0.f,
                                                 0.f, 1.f, 0.f,
                                                 0.f, 0.f, 1.f);
@@ -111,7 +102,7 @@ struct PathTracer
         if (Bridge::getMaxBounceLimit()<path.getVertexIndex())
             return true;
         const uint diffuseBounces = path.getCounter(PackedCounters::DiffuseBounces);
-        return diffuseBounces > kMaxDiffuseBounces;
+        return diffuseBounces > Bridge::getMaxDiffuseBounceLimit();
     }
 
     /** Compute index of refraction for medium on the outside of the current dielectric volume.
@@ -203,19 +194,26 @@ struct PathTracer
         \param[in] u Uniform random number in [0,1).
         \return Returns true if path was terminated.
     */
-    static bool terminatePathByRussianRoulette(inout PathState path, float u)
+    static bool terminatePathByRussianRoulette(inout PathState path, inout SampleGenerator sg, const AUXContext auxContext)
     {
+        if( !auxContext.ptConsts.enableRussianRoulette )
+            return false;
+
         const float rrVal = luminance(path.thp);
+        
+#if 0
         float prob = max(0.f, 1.f - rrVal);
+#else   // a milder version of Falcor's Russian Roulette; TODO: make this an UI setting
+        float prob = saturate( 0.85 - rrVal ); prob = prob*prob*prob*prob;
+#endif
 
-        prob = saturate( prob - 0.2 ); prob = prob*prob*prob*prob; // make it a very mild version of Russian Roulette (different from Falcor!)
-
-        if (u < prob)
+        if (sampleNext1D(sg) < prob)
         {
             path.terminate();
             return true;
         }
-        updatePathThroughput(path, 1.0 / (1.0 - prob));
+        
+        updatePathThroughput(path, 1.0 / (1.0 - prob)); // in theory we should also do 'path.fireflyFilterK *= (1.0 - prob);' here
         return false;
     }
 
@@ -225,7 +223,7 @@ struct PathTracer
     */
     static void addToPathContribution(inout PathState path, float3 radiance, const AUXContext auxContext)
     {
-#if STABLE_PLANES_MODE != STABLE_PLANES_NOISY_PASS // noisy mode should either output everything to denoising buffers, with stable stuff handled in MODE 1; there is no 'residual'
+#if PATH_TRACER_MODE != PATH_TRACER_MODE_FILL_STABLE_PLANES // noisy mode should either output everything to denoising buffers, with stable stuff handled in MODE 1; there is no 'residual'
         path.L += max( 0.xxx, path.thp*radiance );
 #endif
     }
@@ -236,10 +234,10 @@ struct PathTracer
         \param[in,out] path The path state.
         \return True if a ray was generated, false otherwise.
     */
-    static bool generateScatterRay(const ShadingData sd, const ActiveBSDF bsdf, inout PathState path, const PathTracerParams params, const AUXContext auxContext)
+    static bool generateScatterRay(const ShadingData sd, const ActiveBSDF bsdf, inout PathState path, inout SampleGenerator sg, const PathTracerParams params, const AUXContext auxContext)
     {
         BSDFSample result;
-        bool valid = bsdf.sample(sd, path.sg, result, kUseBSDFSampling);
+        bool valid = bsdf.sample(sd, sg, result, kUseBSDFSampling);
 
         if (valid) valid = generateScatterRay(result, sd, bsdf, path, params, auxContext);
 
@@ -335,7 +333,7 @@ struct PathTracer
         // if bouncePDF then it's a delta event - expansion angle is 0
         path.fireflyFilterK = ComputeNewScatterFireflyFilterK(path.fireflyFilterK, auxContext.ptConsts.camera.pixelConeSpreadAngle, bs.pdf, bs.lobeP);
 
-//#if STABLE_PLANES_MODE!=STABLE_PLANES_NOISY_PASS
+//#if PATH_TRACER_MODE!=PATH_TRACER_MODE_FILL_STABLE_PLANES
 //        if( auxContext.debug.IsDebugPixel() )
 //            //auxContext.debug.Print( path.getVertexIndex(), path.fireflyFilterK, luminance(path.L), bs.pdf, bs.lobeP);
 //            auxContext.debug.Print( path.getVertexIndex(), path.isDelta(), luminance(path.thp), bs.pdf, bs.lobeP);
@@ -347,7 +345,7 @@ struct PathTracer
         // Mark the path as valid only if it has a non-zero throughput.
         bool valid = any(path.thp > 0.f);
 
-#if STABLE_PLANES_MODE==STABLE_PLANES_NOISY_PASS
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_FILL_STABLE_PLANES
         if (valid)
             StablePlanesOnScatter(path, bs, auxContext);
 #endif
@@ -533,6 +531,8 @@ struct PathTracer
         getLightTypeSelectionProbabilities(p);
 
         float u = sampleNext1D(sg);
+        lightType = 0.0;
+        pdf = 0.0;
 
         [unroll]
         for (lightType = 0; lightType < 3; ++lightType)
@@ -611,7 +611,7 @@ struct PathTracer
         path.sceneLength = min(path.sceneLength+rayTCurrent, kMaxRayTravel);    // Advance total travel length
 
         // good place for debug viz
-#if ENABLE_DEBUG_VIZUALISATION && !NON_PATH_TRACING_PASS// && STABLE_PLANES_MODE!=STABLE_PLANES_BUILD_PASS <- let's actually show the build rays - maybe even add them some separate effect in the future
+#if ENABLE_DEBUG_VIZUALISATION && !NON_PATH_TRACING_PASS// && PATH_TRACER_MODE!=PATH_TRACER_MODE_BUILD_STABLE_PLANES <- let's actually show the build rays - maybe even add them some separate effect in the future
         if( auxContext.debug.IsDebugPixel() )
             auxContext.debug.DrawLine(rayOrigin, rayOrigin+rayDir*rayTCurrent, float4(0.6.xxx, 0.2), float4(1.0.xxx, 1.0));
 #endif
@@ -624,7 +624,7 @@ struct PathTracer
 
         const PathTracerParams params = Bridge::getPathTracerParams();
 
-#if STABLE_PLANES_MODE==STABLE_PLANES_BUILD_PASS && ENABLE_DEBUG_DELTA_TREE_VIZUALISATION
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES && ENABLE_DEBUG_DELTA_TREE_VIZUALISATION
         if (path.hasFlag(PathFlags::deltaTreeExplorer))
         {
             DeltaTreeVizHandleMiss(path, rayOrigin, rayDir, rayTCurrent, params, auxContext);
@@ -639,7 +639,7 @@ struct PathTracer
         // Add env radiance. See counterpart logic for 'computeEmissive'
         bool computeEnv = (kUseEnvLight&& Bridge::EnvMap::HasEnvMap()) && (!kUseNEE || kUseMIS || !isLightSampled || !isLightSamplable);
 
-        // We skip sampling environment when ReSTIR handled sampled in NEE, in the previous vertex. Delta and Transmission parts are never sampled by ReSTIR, so we have to handle those.
+        // We skip sampling environment when ReSTIR DI fully handled sampling in NEE, in the previous vertex. Delta and Transmission parts are currently not sampled by ReSTIR DI, so we have to handle those.
         if (path.hasFlag(PathFlags::lightSampledReSTIR) && !(path.isDelta() || path.isTransmission()) )
             computeEnv = false;
 
@@ -672,7 +672,7 @@ struct PathTracer
         path.clearHit();
         path.terminate();
 
-#if STABLE_PLANES_MODE!=STABLE_PLANES_DISABLED
+#if PATH_TRACER_MODE!=PATH_TRACER_MODE_REFERENCE
         if( !StablePlanesHandleMiss(path, environmentEmission, rayOrigin, rayDir, rayTCurrent, 0, params, auxContext) )
             return;
 #endif
@@ -681,7 +681,7 @@ struct PathTracer
             addToPathContribution(path, environmentEmission, auxContext);
     }
 
-#if STABLE_PLANES_MODE==STABLE_PLANES_BUILD_PASS
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES
     // splits out delta component, traces ray to next surface, saves the hit without any further processing
     // if verifyDominantFlag is true, will remove PathFlags::stablePlaneOnDominantBranch from result if not on dominant lobe (otherwise it stay as it was); if we're splitting more than 1 lobe then we can only follow one dominant so we must update - otherwise we can let the flag persist
     static PathState splitDeltaPath(const PathState oldPath, const float3 rayDir, const SurfaceData surfaceData, const DeltaLobe lobe, const uint deltaLobeIndex, const bool verifyDominantFlag, const AUXContext auxContext)
@@ -753,12 +753,14 @@ struct PathTracer
 
         return newPath;
     }
-#endif // #if STABLE_PLANES_MODE==STABLE_PLANES_BUILD_PASS
+#endif // #if PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES
 
     // supports only TriangleHit for now; more to be added when needed
     static void handleHit(const uniform OptimizationHints optimizationHints, inout PathState path, const float3 rayOrigin, const float3 rayDir, const float rayTCurrent, const AUXContext auxContext)
     {
         updatePathTravelled(path, rayOrigin, rayDir, rayTCurrent, auxContext);
+        
+        SampleGenerator sg = SampleGenerator::make(PathIDToPixel(path.id), path.getVertexIndex(), Bridge::getSampleIndex());
 
         const PathTracerParams params = Bridge::getPathTracerParams();
 
@@ -787,7 +789,7 @@ struct PathTracer
 
         const SurfaceData bridgedData = Bridge::loadSurface(optimizationHints, triangleHit, rayDir, path.rayCone, params, path.getVertexIndex(), auxContext.debug);
 
-#if STABLE_PLANES_MODE==STABLE_PLANES_NOISY_PASS
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_FILL_STABLE_PLANES
         // if( auxContext.debug.IsDebugPixel() && path.getVertexIndex()==1 )
         //     auxContext.debug.Print( 4, path.rayCone.getSpreadAngle(), path.rayCone.getWidth(), rayTCurrent, path.sceneLength);
 #endif
@@ -807,7 +809,7 @@ struct PathTracer
         // Reject false hits in nested dielectrics but also updates 'outside index of refraction' and dependent data
         bool rejectedFalseHit = !handleNestedDielectrics(bridgedData, path, auxContext);
 
-#if STABLE_PLANES_MODE==STABLE_PLANES_BUILD_PASS && ENABLE_DEBUG_DELTA_TREE_VIZUALISATION
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES && ENABLE_DEBUG_DELTA_TREE_VIZUALISATION
         if (path.hasFlag(PathFlags::deltaTreeExplorer))
         {
             DeltaTreeVizHandleHit(path, rayOrigin, rayDir, rayTCurrent, bridgedData, rejectedFalseHit, hasFinishedSurfaceBounces(path), volumeAbsorption, params, auxContext);
@@ -821,7 +823,7 @@ struct PathTracer
         const ShadingData sd    = bridgedData.sd;
         const ActiveBSDF bsdf   = bridgedData.bsdf;
 
-#if ENABLE_DEBUG_VIZUALISATION && STABLE_PLANES_MODE!=STABLE_PLANES_BUILD_PASS
+#if ENABLE_DEBUG_VIZUALISATION && PATH_TRACER_MODE!=PATH_TRACER_MODE_BUILD_STABLE_PLANES
         if (debugPath)
         {
             // IoR debugging - .x - "outside", .y - "interior", .z - frontFacing, .w - "eta" (eta is isFrontFace?outsideIoR/insideIoR:insideIoR/outsideIoR)
@@ -864,7 +866,7 @@ struct PathTracer
         // The primary hit is always included, secondary hits only if emissive lights are enabled and the full light contribution hasn't been sampled elsewhere.
         bool computeEmissive = isPrimaryHit || (kUseEmissiveLights && (!(kUseNEE && !optimizationHints.OnlyDeltaLobes) || kUseMIS || !path.isLightSampled() || !isLightSamplable));
 
-        // We skip sampling emissive when ReSTIR handled sampled in NEE, in the previous vertex. Delta and Transmission parts are never sampled by ReSTIR, so we have to handle those.
+        // We skip sampling emissive when ReSTIR DI fully handled sampling in NEE, in the previous vertex. Delta and Transmission parts are currently not sampled by ReSTIR DI, so we have to handle those.
         if (path.hasFlag(PathFlags::lightSampledReSTIR) && !(path.isDelta() || path.isTransmission()) )
             computeEmissive = false;
 
@@ -880,11 +882,11 @@ struct PathTracer
         if (any(surfaceEmission>0))
             addToPathContribution(path, surfaceEmission, auxContext);
 
-#if STABLE_PLANES_MODE!=STABLE_PLANES_DISABLED
+#if PATH_TRACER_MODE!=PATH_TRACER_MODE_REFERENCE
         StablePlanesHandleHit(path, rayOrigin, rayDir, rayTCurrent, optimizationHints.SortKey, params, auxContext, bridgedData, volumeAbsorption, surfaceEmission);
 #endif
 
-#if STABLE_PLANES_MODE!=STABLE_PLANES_BUILD_PASS // in build mode we've consumed emission and either updated or terminated path ourselves
+#if PATH_TRACER_MODE!=PATH_TRACER_MODE_BUILD_STABLE_PLANES // in build mode we've consumed emission and either updated or terminated path ourselves
 
         // Terminate after scatter ray on last vertex has been processed. Also terminates here if StablePlanesHandleHit terminated path.
         if (hasFinishedSurfaceBounces(path))
@@ -904,8 +906,8 @@ struct PathTracer
         const bool applyNEE = (kUseNEE && !optimizationHints.OnlyDeltaLobes) && hasNonDeltaLobes;
 
         // Check if sample from RTXDI should be applied instead of NEE.
-#if STABLE_PLANES_MODE==STABLE_PLANES_NOISY_PASS
-        const bool applyReSTIR = auxContext.ptConsts.useReSTIR && hasNonDeltaLobes && path.hasFlag(PathFlags::stablePlaneOnDominantBranch) && path.hasFlag(PathFlags::stablePlaneOnPlane);
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_FILL_STABLE_PLANES
+        const bool applyReSTIR = auxContext.ptConsts.useReSTIRDI && hasNonDeltaLobes && path.hasFlag(PathFlags::stablePlaneOnDominantBranch) && path.hasFlag(PathFlags::stablePlaneOnPlane);
 #else
         const bool applyReSTIR = false;
 #endif
@@ -938,7 +940,7 @@ struct PathTracer
                 bool sampleLowerHemisphere = isCurveHit || ((lobes & (uint)LobeType::NonDeltaTransmission) != 0);
 
                 // Sample a light.
-                validSample = generateLightSample(vertex, sampleUpperHemisphere, sampleLowerHemisphere, path.sg, ls);
+                validSample = generateLightSample(vertex, sampleUpperHemisphere, sampleLowerHemisphere, sg, ls);
                 path.setLightSampled(sampleUpperHemisphere, sampleLowerHemisphere);
             }
 
@@ -966,7 +968,7 @@ struct PathTracer
 
 #if PTSDK_DIFFUSE_SPECULAR_SPLIT
                 float3 bsdfThpDiff, bsdfThpSpec; 
-                bsdf.eval(sd, ls.dir, path.sg, bsdfThpDiff, bsdfThpSpec);
+                bsdf.eval(sd, ls.dir, sg, bsdfThpDiff, bsdfThpSpec);
                 float3 bsdfThp = bsdfThpDiff + bsdfThpSpec;
 #else
                 float3 bsdfThp = bsdf.eval(sd, ls.dir, path.sg);
@@ -998,7 +1000,7 @@ struct PathTracer
 #endif
                         neeContribution = diffuseRadiance + specularRadiance; // will be 0 when denoiser captures it all
 
-#if STABLE_PLANES_MODE==STABLE_PLANES_NOISY_PASS // fill
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_FILL_STABLE_PLANES // fill
                         StablePlanesHandleNEE(path, diffuseRadiance, specularRadiance, ls.distance, auxContext);
 #else
                         addToPathContribution(path, neeContribution, auxContext);
@@ -1009,11 +1011,11 @@ struct PathTracer
         }
 
         // Russian roulette to terminate paths early.
-        if (kUseRussianRoulette && terminatePathByRussianRoulette(path, sampleNext1D(path.sg))) 
+        if (terminatePathByRussianRoulette(path, sg, auxContext)) 
             return;
 
         // Generate the next path segment or terminate.
-        bool valid = generateScatterRay(sd, bsdf, path, params, auxContext);
+        bool valid = generateScatterRay(sd, bsdf, path, sg, params, auxContext);
 
         // Check if this is the last path vertex.
         const bool isLastVertex = hasFinishedSurfaceBounces(path);
@@ -1029,18 +1031,18 @@ struct PathTracer
             path.terminate();
         }
 
-#endif // #if STABLE_PLANES_MODE!=STABLE_PLANES_BUILD_PASS
+#endif // #if PATH_TRACER_MODE!=PATH_TRACER_MODE_BUILD_STABLE_PLANES
     }
 
-#if STABLE_PLANES_MODE!=STABLE_PLANES_DISABLED
+#if PATH_TRACER_MODE!=PATH_TRACER_MODE_REFERENCE
     static void StablePlanesHandleHit(inout PathState path, const float3 rayOrigin, const float3 rayDir, const float rayTCurrent, uint SERSortKey, const PathTracerParams params, const AUXContext auxContext, const SurfaceData bridgedData, float volumeAbsorption, float3 surfaceEmission)
     {
-#if STABLE_PLANES_MODE==STABLE_PLANES_BUILD_PASS // build
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES // build
         const uint vertexIndex = path.getVertexIndex();
         const uint currentSPIndex = path.getStablePlaneIndex();
 
         if (vertexIndex == 1)
-            auxContext.stablePlanes.StoreFirstHitRayLengthAndClearDominantToZero(path.sceneLength);
+            auxContext.stablePlanes.StoreFirstHitRayLengthAndClearDominantToZeroCenter(path.sceneLength);
 
         bool setAsBase = true;    // if path no longer stable, stop and set as a base
         float passthroughOverride = 0.0;
@@ -1181,13 +1183,13 @@ struct PathTracer
             // diffBSDFEstimate = lerp( diffBSDFEstimate, 0.5.xxx, passthroughOverride * 0.5 );
             // specBSDFEstimate = lerp( specBSDFEstimate, 0.5.xxx, passthroughOverride * 0.5 );
 
-            auxContext.stablePlanes.StoreStablePlane(currentSPIndex, vertexIndex, path.hitPacked, SERSortKey, path.stableBranchID, rayDir, path.sceneLength, path.thp, 
+            auxContext.stablePlanes.StoreStablePlaneCenter(currentSPIndex, vertexIndex, path.hitPacked, SERSortKey, path.stableBranchID, rayDir, path.sceneLength, path.thp, 
                 motionVectors, roughness, worldNormal, diffBSDFEstimate, specBSDFEstimate, path.hasFlag(PathFlags::stablePlaneOnDominantBranch));
             
             // since we're building the planes and we've found a base plane, terminate here and the nextHit contains logic for continuing from other split paths if any (enqueued with .StoreExplorationStart)
             path.terminate();
         }
-#elif STABLE_PLANES_MODE==STABLE_PLANES_NOISY_PASS // fill
+#elif PATH_TRACER_MODE==PATH_TRACER_MODE_FILL_STABLE_PLANES // fill
         
         const int bouncesFromStablePlane = path.getCounter(PackedCounters::BouncesFromStablePlane);
         if (auxContext.ptConsts.useReSTIRGI && bouncesFromStablePlane == 1 && path.hasFlag(PathFlags::stablePlaneOnDominantBranch))
@@ -1212,7 +1214,7 @@ struct PathTracer
 #endif
     }
 
-#if STABLE_PLANES_MODE==STABLE_PLANES_NOISY_PASS // fill only
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_FILL_STABLE_PLANES // fill only
     static void StablePlanesOnScatter(inout PathState path, const BSDFSample bs, const AUXContext auxContext)
     {
         const bool wasOnStablePlane = path.hasFlag(PathFlags::stablePlaneOnPlane);
@@ -1232,7 +1234,7 @@ struct PathTracer
             bool onStablePath = false;
             for (uint spi = 0; spi < cStablePlaneCount; spi++)
             {
-                const uint planeBranchID = auxContext.stablePlanes.GetBranchID(spi);
+                const uint planeBranchID = auxContext.stablePlanes.GetBranchIDCenter(spi);
                 if (planeBranchID == cStablePlaneInvalidBranchID)
                     continue;
 
@@ -1247,7 +1249,7 @@ struct PathTracer
                     path.setFlag(PathFlags::stablePlaneOnPlane, true);
                     path.setFlag(PathFlags::stablePlaneOnDeltaBranch, false);
                     path.setStablePlaneIndex(spi);
-                    path.setFlag(PathFlags::stablePlaneOnDominantBranch, spi == auxContext.stablePlanes.LoadDominantIndex());
+                    path.setFlag(PathFlags::stablePlaneOnDominantBranch, spi == auxContext.stablePlanes.LoadDominantIndexCenter());
                     path.setCounter(PackedCounters::BouncesFromStablePlane, 0);
                     path.denoiserSampleHitTFromPlane    = 0.0;
                     path.denoiserDiffRadianceHitDist    = float4(0,0,0,0);
@@ -1308,15 +1310,15 @@ struct PathTracer
 
     static bool StablePlanesHandleMiss(inout PathState path, float3 emission, const float3 rayOrigin, const float3 rayDir, const float rayTCurrent, uint SERSortKey, const PathTracerParams params, const AUXContext auxContext)
     {
-#if STABLE_PLANES_MODE==STABLE_PLANES_BUILD_PASS // build
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES // build
         const uint vertexIndex = path.getVertexIndex();
         if (vertexIndex == 1)
-            auxContext.stablePlanes.StoreFirstHitRayLengthAndClearDominantToZero(kMaxRayTravel);
+            auxContext.stablePlanes.StoreFirstHitRayLengthAndClearDominantToZeroCenter(kMaxRayTravel);
         float3 motionVectors = Bridge::computeSkyMotionVector(auxContext.pixelPos);
-        auxContext.stablePlanes.StoreStablePlane(path.getStablePlaneIndex(), vertexIndex, path.hitPacked, SERSortKey, path.stableBranchID, rayDir, path.sceneLength, path.thp, 
+        auxContext.stablePlanes.StoreStablePlaneCenter(path.getStablePlaneIndex(), vertexIndex, path.hitPacked, SERSortKey, path.stableBranchID, rayDir, path.sceneLength, path.thp, 
             motionVectors, 1, -rayDir, 1.xxx, 1.xxx, path.hasFlag(PathFlags::stablePlaneOnDominantBranch));
         return true; // collect the emission!
-#elif STABLE_PLANES_MODE==STABLE_PLANES_NOISY_PASS // fill
+#elif PATH_TRACER_MODE==PATH_TRACER_MODE_FILL_STABLE_PLANES // fill
 
         const int bouncesFromStablePlane = path.getCounter(PackedCounters::BouncesFromStablePlane);
         if (auxContext.ptConsts.useReSTIRGI && bouncesFromStablePlane == 1 && path.hasFlag(PathFlags::stablePlaneOnDominantBranch))
@@ -1349,7 +1351,7 @@ struct PathTracer
 };
 
 // used only for debug visualization
-#if STABLE_PLANES_MODE==STABLE_PLANES_BUILD_PASS && ENABLE_DEBUG_DELTA_TREE_VIZUALISATION
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES && ENABLE_DEBUG_DELTA_TREE_VIZUALISATION
 void DeltaTreeVizHandleMiss(inout PathState path, const float3 rayOrigin, const float3 rayDir, const float rayTCurrent, const PathTracerParams params, const AUXContext auxContext)
 {
     if (path.hasFlag(PathFlags::deltaTreeExplorer))
@@ -1395,7 +1397,7 @@ void DeltaTreeVizHandleHit(inout PathState path, const float3 rayOrigin, const f
                     if (deltaPath.getVertexIndex() <= cStablePlaneMaxVertexIndex)
                         for (uint spi = 0; spi < cStablePlaneCount; spi++)
                         {
-                            const uint planeBranchID = auxContext.stablePlanes.GetBranchID(spi);
+                            const uint planeBranchID = auxContext.stablePlanes.GetBranchIDCenter(spi);
                             if (planeBranchID != cStablePlaneInvalidBranchID && StablePlaneIsOnPlane(planeBranchID, deltaPath.stableBranchID))
                             {
                                 deltaPath.setFlag(PathFlags::stablePlaneOnPlane, true);
@@ -1404,7 +1406,7 @@ void DeltaTreeVizHandleHit(inout PathState path, const float3 rayOrigin, const f
 
                                 // picking dominant flag from the actual build pass stable planes to be faithful debug for the StablePlanes system, which executed before this
                                 const uint stablePlaneIndex = deltaPath.getStablePlaneIndex();
-                                const uint dominantSPIndex = auxContext.stablePlanes.LoadDominantIndex();
+                                const uint dominantSPIndex = auxContext.stablePlanes.LoadDominantIndexCenter();
                                 deltaPath.setFlag(PathFlags::stablePlaneOnDominantBranch, stablePlaneIndex == dominantSPIndex && deltaPath.hasFlag(PathFlags::stablePlaneOnPlane) );
                             }
                         }

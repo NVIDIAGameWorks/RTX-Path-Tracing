@@ -38,7 +38,6 @@ RtxdiPass::RtxdiPass(
 		m_CommonRenderPasses(commonRenderPasses),
 		m_BindlessLayout(bindlessLayout),
 		m_EnvMapDirty(false),
-		m_CurrentSurfaceBufferIdx(0),
 		m_PreviousReservoirIndex(0)
 {
 	//Create binding layouts
@@ -51,14 +50,13 @@ RtxdiPass::RtxdiPass(
 		nvrhi::BindingLayoutItem::Texture_SRV(24),				//t_EnvironmentPdfTexture
 		nvrhi::BindingLayoutItem::Texture_SRV(25),				//t_LocalLightPdfTexture
 		nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26),		//t_GeometryInstanceToLight
-		nvrhi::BindingLayoutItem::StructuredBuffer_SRV(28),		//t_SurfaceData
 		
 		nvrhi::BindingLayoutItem::StructuredBuffer_UAV(13),		//u_LightReservoirs
 		nvrhi::BindingLayoutItem::StructuredBuffer_UAV(14),		//u_GIReservoirs
 		nvrhi::BindingLayoutItem::TypedBuffer_UAV(15),			//u_RisBuffer
 		nvrhi::BindingLayoutItem::TypedBuffer_UAV(16),			//u_RisLightDataBuffer
 
-		nvrhi::BindingLayoutItem::VolatileConstantBuffer(5),
+		nvrhi::BindingLayoutItem::VolatileConstantBuffer(5),	//g_RtxdiBridgeConst
 
 		nvrhi::BindingLayoutItem::Sampler(4)
 	};
@@ -95,7 +93,7 @@ void RtxdiPass::CreatePipelines(nvrhi::BindingLayoutHandle extraBindingLayout /*
 	m_TemporalResamplingPass.Init(m_Device, *m_ShaderFactory, "app/RTXDI/TemporalResampling.hlsl",
 		{}, useRayQuery, RTXDI_SCREEN_SPACE_GROUP_SIZE, m_BindingLayout, extraBindingLayout, m_BindlessLayout);
 	
-	m_FinalSamplingPass.Init(m_Device, *m_ShaderFactory, "app/RTXDI/FinalSampling.hlsl", { { "USE_RAY_QUERY", "1" } }, m_BindingLayout, extraBindingLayout, m_BindlessLayout);
+	m_FinalSamplingPass.Init(m_Device, *m_ShaderFactory, "app/RTXDI/DIFinalShading.hlsl", { { "USE_RAY_QUERY", "1" } }, m_BindingLayout, extraBindingLayout, m_BindlessLayout);
 	
 	m_GISpatialResamplingPass.Init(m_Device, *m_ShaderFactory, "app/RTXDI/GISpatialResampling.hlsl",
 		{}, useRayQuery, RTXDI_SCREEN_SPACE_GROUP_SIZE, m_BindingLayout, extraBindingLayout, m_BindlessLayout);
@@ -103,6 +101,8 @@ void RtxdiPass::CreatePipelines(nvrhi::BindingLayoutHandle extraBindingLayout /*
 		{}, useRayQuery, RTXDI_SCREEN_SPACE_GROUP_SIZE, m_BindingLayout, extraBindingLayout, m_BindlessLayout);
 	m_GIFinalShadingPass.Init(m_Device, *m_ShaderFactory, "app/RTXDI/GIFinalShading.hlsl",
 		{}, useRayQuery, RTXDI_SCREEN_SPACE_GROUP_SIZE, m_BindingLayout, extraBindingLayout, m_BindlessLayout);
+    m_FusedDIGIFinalShadingPass.Init(m_Device, *m_ShaderFactory, "app/RTXDI/FusedDIGIFinalShading.hlsl",
+        {}, useRayQuery, RTXDI_SCREEN_SPACE_GROUP_SIZE, m_BindingLayout, extraBindingLayout, m_BindlessLayout);
 }
 
 void RtxdiPass::CreateBindingSet(const RenderTargets& renderTargets)
@@ -118,7 +118,6 @@ void RtxdiPass::CreateBindingSet(const RenderTargets& renderTargets)
 			nvrhi::BindingSetItem::Texture_SRV(24, m_RtxdiResources->EnvironmentPdfTexture),
 			nvrhi::BindingSetItem::Texture_SRV(25, m_RtxdiResources->LocalLightPdfTexture),
 			nvrhi::BindingSetItem::StructuredBuffer_SRV(26, m_RtxdiResources->GeometryInstanceToLightBuffer),
-			nvrhi::BindingSetItem::StructuredBuffer_SRV(28, m_RtxdiResources->SurfaceDataBuffer),
 			
 			// Render targets
 			nvrhi::BindingSetItem::StructuredBuffer_UAV(13, m_RtxdiResources->LightReservoirBuffer),
@@ -127,6 +126,7 @@ void RtxdiPass::CreateBindingSet(const RenderTargets& renderTargets)
 			nvrhi::BindingSetItem::TypedBuffer_UAV(16, m_RtxdiResources->RisLightDataBuffer),
 			
 			nvrhi::BindingSetItem::ConstantBuffer(5, m_RtxdiConstantBuffer),
+
 			nvrhi::BindingSetItem::Sampler(4, m_CommonRenderPasses->m_LinearWrapSampler)
 		};
 
@@ -136,112 +136,6 @@ void RtxdiPass::CreateBindingSet(const RenderTargets& renderTargets)
 		else
 			m_PrevBindingSet = bindingSet;
 	}
-}
-
-void RtxdiPass::FillCommonBridgeConstants(RtxdiBridgeConstants& bridgeConstants) const
-{
-	m_RtxdiContext->FillRuntimeParameters(bridgeConstants.runtimeParams, m_BridgeParameters.frameParams);
-	
-	bridgeConstants.cameraPosition = m_BridgeParameters.cameraPosition;
-	bridgeConstants.frameIndex = m_BridgeParameters.frameParams.frameIndex;
-	bridgeConstants.frameDim = m_BridgeParameters.frameDims;
-	bridgeConstants.pixelCount = m_BridgeParameters.frameDims.x * m_BridgeParameters.frameDims.y;
-	bridgeConstants.rayEpsilon = m_BridgeParameters.userSettings.rayEpsilon;
-	bridgeConstants.currentSampleIndex = m_CurrentSampleIndex;
-	bridgeConstants.previousSampleIndex = m_PreviousSampleIndex;
-	bridgeConstants.enableAA = m_BridgeParameters.enableAA;
-	bridgeConstants.cameraU = m_CurrentCameraVectors.cameraU;
-	bridgeConstants.cameraV = m_CurrentCameraVectors.cameraV;
-	bridgeConstants.cameraW = m_CurrentCameraVectors.cameraW;
-	bridgeConstants.prevCameraU = m_PreviousCameraVectors.cameraU;
-	bridgeConstants.prevCameraV = m_PreviousCameraVectors.cameraV;
-	bridgeConstants.prevCameraW = m_PreviousCameraVectors.cameraW;
-	bridgeConstants.currentSurfaceBufferIdx = m_CurrentSurfaceBufferIdx;
-	bridgeConstants.prevSurfaceBufferIdx = 1 - m_CurrentSurfaceBufferIdx;
-	bridgeConstants.environmentScale = m_BridgeParameters.environmentScale;
-	bridgeConstants.environmentRotation = m_BridgeParameters.environmentRotation;
-}
-
-void RtxdiPass::FillConstants(nvrhi::CommandListHandle commandList)
-{
-	m_CurrentCameraVectors = m_BridgeParameters.cameraVectors;
-	m_CurrentSampleIndex = m_BridgeParameters.sampleIndex;
-
-	// Set the ReGir center and the camera position 
-	m_BridgeParameters.frameParams.regirCenter = { m_BridgeParameters.cameraPosition.x, m_BridgeParameters.cameraPosition.y,m_BridgeParameters.cameraPosition.z };
-
-	RtxdiBridgeConstants bridgeConstants {};
-
-	FillCommonBridgeConstants(bridgeConstants);
-
-	//Pre-sampling variables
-	bridgeConstants.environmentMapImportanceSampling = m_BridgeParameters.userSettings.environmentMapImportanceSampling;
-	bridgeConstants.localLightPdfTextureSize = uint2(m_RtxdiResources->LocalLightPdfTexture->getDesc().width, m_RtxdiResources->LocalLightPdfTexture->getDesc().height);
-	bridgeConstants.environmentPdfTextureSize = uint2(m_RtxdiResources->EnvironmentPdfTexture->getDesc().width, m_RtxdiResources->EnvironmentPdfTexture->getDesc().height);
-	
-	//Reservoir variables
-	if (m_BridgeParameters.userSettings.resamplingMode == RtxdiResamplingModeType::FusedResampling)
-	{
-		bridgeConstants.temporalInputBufferIndex = m_PreviousReservoirIndex;
-		bridgeConstants.finalShadingReservoir = 1 - m_PreviousReservoirIndex;
-	}
-	else 
-	{	//Spatio Temporal Re-sampling assumes we have at least 3 reservoirs. The number of reservoirs are set here RtxdiResources::c_NumReservoirBuffers;
-		//For the initial output we want an index which is not the temporal input or output index
-		bridgeConstants.initialOutputBufferIndex = GetNextReservoirIndex(m_PreviousReservoirIndex);
-		bridgeConstants.temporalInputBufferIndex = m_PreviousReservoirIndex;
-		bridgeConstants.temporalOutputBufferIndex = GetNextReservoirIndex(m_PreviousReservoirIndex);
-
-		if (m_BridgeParameters.userSettings.resamplingMode == RtxdiResamplingModeType::TemporalResampling || m_BridgeParameters.userSettings.resamplingMode == RtxdiResamplingModeType::SpatioTemporalResampling)
-			bridgeConstants.spatialInputBufferIndex = bridgeConstants.temporalOutputBufferIndex;
-		else
-			bridgeConstants.spatialInputBufferIndex = bridgeConstants.initialOutputBufferIndex;
-
-		bridgeConstants.spatialOutputBufferIndex = GetNextReservoirIndex(bridgeConstants.spatialInputBufferIndex);
-
-		if (m_BridgeParameters.userSettings.resamplingMode == RtxdiResamplingModeType::SpatialResampling || m_BridgeParameters.userSettings.resamplingMode == RtxdiResamplingModeType::SpatioTemporalResampling)
-			bridgeConstants.finalShadingReservoir = bridgeConstants.spatialOutputBufferIndex;
-		else
-			bridgeConstants.finalShadingReservoir = bridgeConstants.temporalOutputBufferIndex;
-	}
-
-	m_CurrentReservoirIndex = bridgeConstants.finalShadingReservoir;
-
-	//Generate initial samples variables
- 	bridgeConstants.numPrimaryRegirSamples = m_BridgeParameters.userSettings.numPrimaryRegirSamples;
- 	bridgeConstants.numPrimaryLocalLightSamples = m_BridgeParameters.userSettings.numPrimaryLocalLightSamples;
- 	bridgeConstants.numPrimaryInfiniteLightSamples = m_BridgeParameters.userSettings.numPrimaryInfiniteLightSamples;
- 	bridgeConstants.numPrimaryEnvironmentSamples = m_BridgeParameters.userSettings.numPrimaryEnvironmentSamples;
- 	bridgeConstants.numPrimaryBrdfSamples = m_BridgeParameters.userSettings.numPrimaryBrdfSamples;
- 	bridgeConstants.brdfCutoff = m_BridgeParameters.userSettings.brdfCutoff;
- 	bridgeConstants.enableInitialVisibility = m_BridgeParameters.userSettings.enableInitialVisibility;
- 	
- 	//Spatial re-sampling variables
- 	bridgeConstants.numSpatialSamples = m_BridgeParameters.userSettings.numSpatialSamples;
- 	bridgeConstants.numDisocclusionBoostSamples = m_BridgeParameters.userSettings.numDisocclusionBoostSamples;
- 	bridgeConstants.spatialBiasCorrection = m_BridgeParameters.userSettings.spatialBiasCorrection;
- 	bridgeConstants.spatialSamplingRadius = m_BridgeParameters.userSettings.spatialSamplingRadius;
- 	bridgeConstants.spatialDepthThreshold = m_BridgeParameters.userSettings.spatialDepthThreshold;
- 	bridgeConstants.spatialNormalThreshold = m_BridgeParameters.userSettings.spatialNormalThreshold;
- 
- 	//Temporal re-sampling variables
-	bridgeConstants.maxHistoryLength = m_BridgeParameters.userSettings.maxHistoryLength;
-	bridgeConstants.temporalBiasCorrection = m_BridgeParameters.userSettings.temporalBiasCorrection;
- 	bridgeConstants.temporalDepthThreshold = m_BridgeParameters.userSettings.temporalDepthThreshold;
- 	bridgeConstants.temporalNormalThreshold = m_BridgeParameters.userSettings.temporalNormalThreshold;
- 	bridgeConstants.discardInvisibleSamples = m_BridgeParameters.userSettings.discardInvisibleSamples;
- 	bridgeConstants.enablePermutationSampling = m_BridgeParameters.userSettings.enablePermutationSampling;
- 	bridgeConstants.boilingFilterStrength = m_BridgeParameters.userSettings.boilingFilterStrength;
- 
- 	//Final sampling pass 
- 	bridgeConstants.enableFinalVisibility = m_BridgeParameters.userSettings.enableFinalVisibility;
-	bridgeConstants.visualizeRegirCells = m_BridgeParameters.userSettings.visualizeRegirCells;
-
-	//ReGir 
-	bridgeConstants.numRegirBuildSamples = m_BridgeParameters.userSettings.numRegirBuildSamples;
-	bridgeConstants.maxLights = uint32_t(m_RtxdiResources->LightDataBuffer->getDesc().byteSize / (sizeof(PolymorphicLightInfo) * 2));;
-
-	commandList->writeBuffer(m_RtxdiConstantBuffer, &bridgeConstants, sizeof(RtxdiBridgeConstants));
 }
 
 void RtxdiPass::Reset()
@@ -261,17 +155,24 @@ void RtxdiPass::BeginFrame(
 	const std::shared_ptr<donut::engine::ExtendedScene> scene,
 	const RtxdiBridgeParameters& bridgeParams,
 	const nvrhi::BindingLayoutHandle extraBindingLayout,
-	bool useRTXDI)
+	bool UseReSTIRDI)
 {
 	m_Scene = scene;
 	m_BridgeParameters = bridgeParams;
-	
+
+	//Some setting changes requires the context to be recreated
+	if (m_RtxdiContext)
+	{
+		if (m_RtxdiContext->GetParameters().ReGIR.Mode != m_BridgeParameters.userSettings.reGirSettings.Mode)
+			Reset();
+	}
+
 	if (!m_RtxdiContext)
 	{
 		rtxdi::ContextParameters contextParams;
 		contextParams.RenderWidth = m_BridgeParameters.frameDims.x;
 		contextParams.RenderHeight = m_BridgeParameters.frameDims.y;
-		contextParams.ReGIR.Mode = m_BridgeParameters.ReGIRParams.Mode;
+		contextParams.ReGIR = m_BridgeParameters.userSettings.reGirSettings;
 		m_RtxdiContext = std::make_unique<rtxdi::Context>(contextParams);
 
 		// Some RTXDI context settings affect the shader permutations
@@ -340,45 +241,46 @@ void RtxdiPass::BeginFrame(
 		CreateBindingSet(renderTargets);
 	}
 
-	// In case the RTXDI context is only needed for ReSTIR GI, skip the light preparation passes
-	if (!useRTXDI)
-		return;
+	// In case where the RTXDI context is only needed for ReSTIR GI, skip the light preparation and mip chain passes
+	if (UseReSTIRDI)
+	{
+		//This pass needs to happen before we fill the constant buffers 
+		commandList->beginMarker("Prepare Light");
+		m_PrepareLightsPass->Process(commandList, *m_RtxdiContext, m_BridgeParameters.frameParams);
+		commandList->endMarker();
 
-	//This pass need to happen before we fill the constant buffers 
-	commandList->beginMarker("Prepare Light");
-	m_PrepareLightsPass->Process(commandList, *m_RtxdiContext, m_BridgeParameters.frameParams);
-	commandList->endMarker();
+		//Create PDF mip chain passes
+		if (envMapPresent && (!m_EnvironmentMapPdfMipmapPass || rtxdiResourceCreated || m_EnvMapDirty))
+		{
+			m_EnvironmentMapPdfMipmapPass = std::make_unique<GenerateMipsPass>(
+				m_Device,
+				m_ShaderFactory,
+				envMap->GetEnvironmentMap(),
+				m_RtxdiResources->EnvironmentPdfTexture);
+
+			SetEnvMapDirty();
+		}
+
+		if (!m_LocalLightPdfMipmapPass || rtxdiResourceCreated)
+		{
+			m_LocalLightPdfMipmapPass = std::make_unique<GenerateMipsPass>(
+				m_Device,
+				m_ShaderFactory,
+				nullptr,
+				m_RtxdiResources->LocalLightPdfTexture);
+		}
+	}
 
 	FillConstants(commandList);
-
-	//Create PDF mip chain passes
-	if (envMapPresent && (!m_EnvironmentMapPdfMipmapPass || rtxdiResourceCreated || m_EnvMapDirty))
-	{
-		m_EnvironmentMapPdfMipmapPass = std::make_unique<GenerateMipsPass>(
-			m_Device,
-			m_ShaderFactory,
-			envMap->GetEnvironmentMap(),
-			m_RtxdiResources->EnvironmentPdfTexture);
-
-		SetEnvMapDirty();
-	}
-
-	if (!m_LocalLightPdfMipmapPass || rtxdiResourceCreated)
-	{
-		m_LocalLightPdfMipmapPass = std::make_unique<GenerateMipsPass>(
-			m_Device,
-			m_ShaderFactory,
-			nullptr,
-			m_RtxdiResources->LocalLightPdfTexture);
-	}
 }
 
 void RtxdiPass::Execute(
 	nvrhi::CommandListHandle commandList,
-	nvrhi::BindingSetHandle extraBindingSet /*= nullptr*/
+	nvrhi::BindingSetHandle extraBindingSet,
+    bool skipFinal
 )
 {
-	commandList->beginMarker("RTXDI");
+	commandList->beginMarker("ReSTIR DI");
 
 	commandList->beginMarker("GeneratePDFTextures");
 	
@@ -427,7 +329,9 @@ void RtxdiPass::Execute(
 	
 	if (m_BridgeParameters.userSettings.resamplingMode == RtxdiResamplingModeType::FusedResampling)
 	{
-		//To do 
+		// TODO: combine initial, temporal, spatial and final sampling in one pass
+        // In case this is implemented, probably no point in doing fused ReSTIR-DI and ReSTIR-GI sampling, so 
+        // then remove skipFinal and related logic.
 	}
 	else
 	{
@@ -449,78 +353,171 @@ void RtxdiPass::Execute(
 
 		}
 
-		//Full screen light sampling pass
-		nvrhi::utils::BufferUavBarrier(commandList, m_RtxdiResources->LightReservoirBuffer);
-		dm::int3 screenSpaceDispatchSize = { 
-			(int)m_RtxdiContext->GetParameters().RenderWidth / RTXDI_SCREEN_SPACE_GROUP_SIZE,
-			(int)m_RtxdiContext->GetParameters().RenderHeight / RTXDI_SCREEN_SPACE_GROUP_SIZE,
-			1};
+        //Full screen light sampling pass
+        nvrhi::utils::BufferUavBarrier(commandList, m_RtxdiResources->LightReservoirBuffer);
 
-		dispatchSize /= RTXDI_SCREEN_SPACE_GROUP_SIZE;
-		ExecuteComputePass(commandList, m_FinalSamplingPass, "Final Sampling", screenSpaceDispatchSize, extraBindingSet);
-	}
+        if (!skipFinal)
+        {
+            // TODO: fix this
+            dm::int3 screenSpaceDispatchSize = {
+                ((int)m_RtxdiContext->GetParameters().RenderWidth + RTXDI_SCREEN_SPACE_GROUP_SIZE - 1) / RTXDI_SCREEN_SPACE_GROUP_SIZE,
+                ((int)m_RtxdiContext->GetParameters().RenderHeight + RTXDI_SCREEN_SPACE_GROUP_SIZE - 1) / RTXDI_SCREEN_SPACE_GROUP_SIZE,
+                1 };
+
+            ExecuteComputePass(commandList, m_FinalSamplingPass, "Final Sampling", screenSpaceDispatchSize, extraBindingSet);
+        }
+    }
 	
 	commandList->endMarker();
 }
 
-void RtxdiPass::FillGIConstants(nvrhi::CommandListHandle commandList)
+void RtxdiPass::FillConstants(nvrhi::CommandListHandle commandList)
 {
-	RtxdiBridgeConstants bridgeConstants {};
+	// Set the ReGir center and the camera position 
+	m_BridgeParameters.frameParams.regirCenter = { m_BridgeParameters.cameraPosition.x, m_BridgeParameters.cameraPosition.y,m_BridgeParameters.cameraPosition.z };
 
-	FillCommonBridgeConstants(bridgeConstants);
+	RtxdiBridgeConstants bridgeConstants{};
+	m_RtxdiContext->FillRuntimeParameters(bridgeConstants.runtimeParams, m_BridgeParameters.frameParams);
+	FillSharedConstants(bridgeConstants);
+	FillDIConstants(bridgeConstants.reStirDI);
+	FillGIConstants(bridgeConstants.reStirGI);
 
+	commandList->writeBuffer(m_RtxdiConstantBuffer, &bridgeConstants, sizeof(RtxdiBridgeConstants));
+}
+
+void RtxdiPass::FillSharedConstants(struct RtxdiBridgeConstants& bridgeConstants) const
+{
+	bridgeConstants.frameIndex = m_BridgeParameters.frameParams.frameIndex;
+	bridgeConstants.frameDim = m_BridgeParameters.frameDims;
+	bridgeConstants.rayEpsilon = m_BridgeParameters.userSettings.rayEpsilon;
+	bridgeConstants.environmentMapImportanceSampling = m_BridgeParameters.userSettings.environmentMapImportanceSampling;
+	bridgeConstants.localLightPdfTextureSize = uint2(m_RtxdiResources->LocalLightPdfTexture->getDesc().width, m_RtxdiResources->LocalLightPdfTexture->getDesc().height);
+	bridgeConstants.localLightPdfLastMipLevel = m_RtxdiResources->LocalLightPdfTexture->getDesc().mipLevels - 1 ;
+	bridgeConstants.environmentPdfTextureSize = uint2(m_RtxdiResources->EnvironmentPdfTexture->getDesc().width, m_RtxdiResources->EnvironmentPdfTexture->getDesc().height);
+	bridgeConstants.environmentPdfLastMipLevel = m_RtxdiResources->EnvironmentPdfTexture->getDesc().mipLevels - 1;
+	bridgeConstants.maxLights = uint32_t(m_RtxdiResources->LightDataBuffer->getDesc().byteSize / (sizeof(PolymorphicLightInfo) * 2));;
+}
+
+void RtxdiPass::FillDIConstants(struct ReStirDIConstants& diConstants)
+{
+	//Reservoir variables
+	if (m_BridgeParameters.userSettings.resamplingMode == RtxdiResamplingModeType::Disabled)
+	{
+		diConstants.initialOutputBufferIndex = 0;
+		diConstants.finalShadingReservoir = diConstants.initialOutputBufferIndex;
+	}
+	else if (m_BridgeParameters.userSettings.resamplingMode == RtxdiResamplingModeType::FusedResampling)
+	{
+		diConstants.temporalInputBufferIndex = m_PreviousReservoirIndex;
+		diConstants.finalShadingReservoir = 1 - m_PreviousReservoirIndex;
+	}
+	else
+	{	//Spatio Temporal Re-sampling assumes we have at least 3 reservoirs. The number of reservoirs are set here RtxdiResources::c_NumReservoirBuffers;
+		//For the initial output we want an index which is not the temporal input or output index
+		diConstants.initialOutputBufferIndex = GetNextReservoirIndex(m_PreviousReservoirIndex);
+		diConstants.temporalInputBufferIndex = m_PreviousReservoirIndex;
+		diConstants.temporalOutputBufferIndex = GetNextReservoirIndex(m_PreviousReservoirIndex);
+
+		if (m_BridgeParameters.userSettings.resamplingMode == RtxdiResamplingModeType::TemporalResampling || m_BridgeParameters.userSettings.resamplingMode == RtxdiResamplingModeType::SpatioTemporalResampling)
+			diConstants.spatialInputBufferIndex = diConstants.temporalOutputBufferIndex;
+		else
+			diConstants.spatialInputBufferIndex = diConstants.initialOutputBufferIndex;
+
+		diConstants.spatialOutputBufferIndex = GetNextReservoirIndex(diConstants.spatialInputBufferIndex);
+
+		if (m_BridgeParameters.userSettings.resamplingMode == RtxdiResamplingModeType::SpatialResampling || m_BridgeParameters.userSettings.resamplingMode == RtxdiResamplingModeType::SpatioTemporalResampling)
+			diConstants.finalShadingReservoir = diConstants.spatialOutputBufferIndex;
+		else
+			diConstants.finalShadingReservoir = diConstants.temporalOutputBufferIndex;
+	}
+
+	m_CurrentReservoirIndex = diConstants.finalShadingReservoir;
+
+	//Generate initial samples variables
+	diConstants.numPrimaryRegirSamples = m_BridgeParameters.userSettings.numPrimaryRegirSamples;
+	diConstants.numPrimaryLocalLightSamples = m_BridgeParameters.userSettings.numPrimaryLocalLightSamples;
+	diConstants.numPrimaryInfiniteLightSamples = m_BridgeParameters.userSettings.numPrimaryInfiniteLightSamples;
+	diConstants.numPrimaryEnvironmentSamples = m_BridgeParameters.userSettings.numPrimaryEnvironmentSamples;
+	diConstants.numPrimaryBrdfSamples = m_BridgeParameters.userSettings.numPrimaryBrdfSamples;
+	diConstants.brdfCutoff = m_BridgeParameters.userSettings.brdfCutoff;
+	diConstants.enableInitialVisibility = m_BridgeParameters.userSettings.enableInitialVisibility;
+
+	//Spatial re-sampling variables
+	diConstants.numSpatialSamples = m_BridgeParameters.userSettings.numSpatialSamples;
+	diConstants.numDisocclusionBoostSamples = m_BridgeParameters.userSettings.numDisocclusionBoostSamples;
+	diConstants.spatialBiasCorrection = m_BridgeParameters.userSettings.spatialBiasCorrection;
+	diConstants.spatialSamplingRadius = m_BridgeParameters.userSettings.spatialSamplingRadius;
+	diConstants.spatialDepthThreshold = m_BridgeParameters.userSettings.spatialDepthThreshold;
+	diConstants.spatialNormalThreshold = m_BridgeParameters.userSettings.spatialNormalThreshold;
+	diConstants.discountNaiveSamples = m_BridgeParameters.userSettings.discountNaiveSamples;
+
+	//Temporal re-sampling variables
+	diConstants.maxHistoryLength = m_BridgeParameters.userSettings.maxHistoryLength;
+	diConstants.temporalBiasCorrection = m_BridgeParameters.userSettings.temporalBiasCorrection;
+	diConstants.temporalDepthThreshold = m_BridgeParameters.userSettings.temporalDepthThreshold;
+	diConstants.temporalNormalThreshold = m_BridgeParameters.userSettings.temporalNormalThreshold;
+	diConstants.discardInvisibleSamples = m_BridgeParameters.userSettings.discardInvisibleSamples;
+	diConstants.enablePermutationSampling = m_BridgeParameters.userSettings.enablePermutationSampling;
+	diConstants.boilingFilterStrength = m_BridgeParameters.userSettings.boilingFilterStrength;
+
+	//Final sampling pass 
+	diConstants.enableFinalVisibility = m_BridgeParameters.userSettings.enableFinalVisibility;
+	//diConstants.visualizeRegirCells = m_BridgeParameters.userSettings.visualizeRegirCells;
+
+	//ReGir 
+	diConstants.numRegirBuildSamples = m_BridgeParameters.userSettings.numRegirBuildSamples;
+}
+
+void RtxdiPass::FillGIConstants(struct ReStirGIConstants& giConstants)
+{
 	const auto& settings = m_BridgeParameters.userSettings;
 
 	if (settings.gi.enableSpatialResampling)
 	{
-		bridgeConstants.temporalInputBufferIndex = 1;
-		bridgeConstants.temporalOutputBufferIndex = 0;
-		bridgeConstants.spatialInputBufferIndex = 0;
-		bridgeConstants.spatialOutputBufferIndex = 1;
-		bridgeConstants.finalShadingReservoir = 1;
+		giConstants.temporalInputBufferIndex = 1;
+		giConstants.temporalOutputBufferIndex = 0;
+		giConstants.spatialInputBufferIndex = 0;
+		giConstants.spatialOutputBufferIndex = 1;
+		giConstants.finalShadingReservoir = 1;
 	}
 	else
 	{
-		bridgeConstants.temporalInputBufferIndex = m_BridgeParameters.frameParams.frameIndex & 1;
-		bridgeConstants.temporalOutputBufferIndex = !bridgeConstants.temporalInputBufferIndex;
-		bridgeConstants.finalShadingReservoir = bridgeConstants.temporalOutputBufferIndex;
+		giConstants.temporalInputBufferIndex = m_BridgeParameters.frameParams.frameIndex & 1;
+		giConstants.temporalOutputBufferIndex = !giConstants.temporalInputBufferIndex;
+		giConstants.finalShadingReservoir = giConstants.temporalOutputBufferIndex;
 	}
 
     // Temporal resampling variables
 	// Temporal and initial passes are combined, so need to pass the toggle into the shader.
-	bridgeConstants.enableTemporalResampling = settings.gi.enableTemporalResampling;
-	bridgeConstants.maxHistoryLength = settings.gi.maxHistoryLength;
-	bridgeConstants.maxReservoirAge = settings.gi.maxReservoirAge;
-	bridgeConstants.enablePermutationSampling = settings.gi.enablePermutationSampling;
-	bridgeConstants.enableFallbackSampling = settings.gi.enableFallbackSampling;
-	bridgeConstants.boilingFilterStrength = settings.gi.boilingFilterStrength;
-	bridgeConstants.temporalDepthThreshold = settings.temporalDepthThreshold;
-	bridgeConstants.temporalNormalThreshold = settings.temporalNormalThreshold;
-	bridgeConstants.temporalBiasCorrection = settings.gi.temporalBiasCorrectionMode;
-	if (bridgeConstants.temporalBiasCorrection == RTXDI_BIAS_CORRECTION_PAIRWISE)
-		bridgeConstants.temporalBiasCorrection = RTXDI_BIAS_CORRECTION_RAY_TRACED;
+	giConstants.enableTemporalResampling = settings.gi.enableTemporalResampling;
+	giConstants.maxHistoryLength = settings.gi.maxHistoryLength;
+	giConstants.maxReservoirAge = settings.gi.maxReservoirAge;
+	giConstants.enablePermutationSampling = settings.gi.enablePermutationSampling;
+	giConstants.enableFallbackSampling = settings.gi.enableFallbackSampling;
+	giConstants.boilingFilterStrength = settings.gi.boilingFilterStrength;
+	giConstants.temporalDepthThreshold = settings.temporalDepthThreshold;
+	giConstants.temporalNormalThreshold = settings.temporalNormalThreshold;
+	giConstants.temporalBiasCorrection = settings.gi.temporalBiasCorrectionMode;
+	if (giConstants.temporalBiasCorrection == RTXDI_BIAS_CORRECTION_PAIRWISE)
+		giConstants.temporalBiasCorrection = RTXDI_BIAS_CORRECTION_RAY_TRACED;
 
 	// Spatial resampling variables
-	bridgeConstants.numSpatialSamples = settings.gi.numSpatialSamples;
-	bridgeConstants.spatialSamplingRadius = settings.gi.spatialSamplingRadius;
-	bridgeConstants.spatialDepthThreshold = settings.spatialDepthThreshold;
-	bridgeConstants.spatialNormalThreshold = settings.spatialNormalThreshold;
-	bridgeConstants.spatialBiasCorrection = settings.gi.spatialBiasCorrectionMode;
-	if (bridgeConstants.spatialBiasCorrection == RTXDI_BIAS_CORRECTION_PAIRWISE)
-		bridgeConstants.spatialBiasCorrection = RTXDI_BIAS_CORRECTION_RAY_TRACED;
+	giConstants.numSpatialSamples = settings.gi.numSpatialSamples;
+	giConstants.spatialSamplingRadius = settings.gi.spatialSamplingRadius;
+	giConstants.spatialDepthThreshold = settings.spatialDepthThreshold;
+	giConstants.spatialNormalThreshold = settings.spatialNormalThreshold;
+	giConstants.spatialBiasCorrection = settings.gi.spatialBiasCorrectionMode;
+	if (giConstants.spatialBiasCorrection == RTXDI_BIAS_CORRECTION_PAIRWISE)
+		giConstants.spatialBiasCorrection = RTXDI_BIAS_CORRECTION_RAY_TRACED;
 		
 	// Final shading pass 
-	bridgeConstants.enableFinalVisibility = settings.gi.enableFinalVisibility;
-	bridgeConstants.enableFinalMIS = settings.gi.enableFinalMIS;
-	
-	commandList->writeBuffer(m_RtxdiConstantBuffer, &bridgeConstants, sizeof(RtxdiBridgeConstants));
+	giConstants.enableFinalVisibility = settings.gi.enableFinalVisibility;
+	giConstants.enableFinalMIS = settings.gi.enableFinalMIS;
 }
 
-void RtxdiPass::ExecuteGI(nvrhi::CommandListHandle commandList, nvrhi::BindingSetHandle extraBindingSet)
+void RtxdiPass::ExecuteGI(nvrhi::CommandListHandle commandList, nvrhi::BindingSetHandle extraBindingSet, bool skipFinal)
 {
 	commandList->beginMarker("ReSTIR GI");
-
-	FillGIConstants(commandList);
 
 	dm::int2 dispatchSize = { (int)m_RtxdiContext->GetParameters().RenderWidth, (int)m_RtxdiContext->GetParameters().RenderHeight };
 
@@ -535,22 +532,22 @@ void RtxdiPass::ExecuteGI(nvrhi::CommandListHandle commandList, nvrhi::BindingSe
 
 	nvrhi::utils::BufferUavBarrier(commandList, m_RtxdiResources->GIReservoirBuffer);
 
-	ExecuteRayTracingPass(commandList, m_GIFinalShadingPass, "Final Shading", dispatchSize, extraBindingSet);
+    if (!skipFinal)
+	    ExecuteRayTracingPass(commandList, m_GIFinalShadingPass, "Final Shading", dispatchSize, extraBindingSet);
 
 	commandList->endMarker(); // ReSTIR GI
 }
 
+void RtxdiPass::ExecuteFusedDIGIFinal(nvrhi::CommandListHandle commandList, nvrhi::BindingSetHandle extraBindingSet)
+{
+    dm::int2 dispatchSize = { (int)m_RtxdiContext->GetParameters().RenderWidth, (int)m_RtxdiContext->GetParameters().RenderHeight };
+    ExecuteRayTracingPass(commandList, m_FusedDIGIFinalShadingPass, "Fused DI GI Final Shading", dispatchSize, extraBindingSet);
+}
+
 void RtxdiPass::EndFrame()
 {
-	//Swap the surface buffer index
-	m_CurrentSurfaceBufferIdx = 1 - m_CurrentSurfaceBufferIdx;
-
 	//Store the current data for the next frame
-	m_PreviousCameraVectors = m_CurrentCameraVectors;
-	m_PreviousSampleIndex = m_CurrentSampleIndex;
 	m_PreviousReservoirIndex = m_CurrentReservoirIndex;
-
-	//std::swap(m_BindingSet, m_PrevBindingSet);
 }
 
 void RtxdiPass::ExecuteComputePass(

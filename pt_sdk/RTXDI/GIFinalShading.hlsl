@@ -10,8 +10,9 @@
 
 #pragma pack_matrix(row_major)
 
-#define RAB_FOR_RESTIR_GI_PASS
+#ifndef NON_PATH_TRACING_PASS
 #define NON_PATH_TRACING_PASS 1
+#endif
 
 #include "../RTXDI/RtxdiApplicationBridge.hlsli"
 
@@ -29,23 +30,17 @@ float GetMISWeight(float3 roughBrdf, float3 trueBrdf)
     return initWeight * initWeight * initWeight;
 }
 
-[numthreads(RTXDI_SCREEN_SPACE_GROUP_SIZE, RTXDI_SCREEN_SPACE_GROUP_SIZE, 1)]
-void main(uint2 GlobalIndex : SV_DispatchThreadID, uint2 LocalIndex : SV_GroupThreadID, uint2 GroupIdx : SV_GroupID)
+bool ReSTIRGIFinalContribution(const uint2 pixelPosition, const RAB_Surface surface, out float3 diffuseContribution, out float3 specularContribution, out float hitDistance)
 {
-    const RTXDI_ResamplingRuntimeParameters runtimeParams = g_RtxdiBridgeConst.runtimeParams;
+    RTXDI_GIReservoir finalReservoir = RTXDI_LoadGIReservoir(g_RtxdiBridgeConst.runtimeParams, pixelPosition, 
+        g_RtxdiBridgeConst.reStirGI.finalShadingReservoir);
 
-    uint2 pixelPosition = RTXDI_ReservoirPosToPixelPos(GlobalIndex, runtimeParams);
-
-    RAB_Surface surface = RAB_GetGBufferSurface(pixelPosition, false);
-
-    if (!RAB_IsSurfaceValid(surface))
-        return;
-
-    RTXDI_GIReservoir finalReservoir = RTXDI_LoadGIReservoir(runtimeParams, pixelPosition,
-        g_RtxdiBridgeConst.finalShadingReservoir);
+    diffuseContribution = 0.0.xxx;
+    specularContribution = 0.0.xxx;
+    hitDistance = 0;
 
     if (!RTXDI_IsValidGIReservoir(finalReservoir))
-        return;
+        return false;
 
     const float4 secondaryPositionNormal = u_SecondarySurfacePositionNormal[pixelPosition];
     RTXDI_GIReservoir initialReservoir = RTXDI_MakeGIReservoir(
@@ -55,14 +50,14 @@ void main(uint2 GlobalIndex : SV_DispatchThreadID, uint2 LocalIndex : SV_GroupTh
         /* samplePdf = */ 1.0);
 
 
-    float3 L = finalReservoir.position - surface.sd.posW;
+    float3 L = finalReservoir.position - surface.GetPosW();
     // Calculate hitDistance here in case visibility is not enabled
-    float hitDistance = length(L);
+    hitDistance = length(L);
     L /= hitDistance;
 
     float3 finalRadiance = finalReservoir.radiance * finalReservoir.weightSum;
 
-    if (g_RtxdiBridgeConst.enableFinalVisibility)
+    if (g_RtxdiBridgeConst.reStirGI.enableFinalVisibility)
     {
         // TODO: support partial visibility... if that is applicable with this material model.
         const RayDesc ray = setupVisibilityRay(surface, finalReservoir.position, g_RtxdiBridgeConst.rayEpsilon);
@@ -76,26 +71,24 @@ void main(uint2 GlobalIndex : SV_DispatchThreadID, uint2 LocalIndex : SV_GroupTh
     SampleGenerator sg = (SampleGenerator)0; // Needed for bsdf.eval but not really used there
 
     float3 diffuseBrdf, specularBrdf;
-    surface.bsdf.eval(surface.sd, L, sg, diffuseBrdf, specularBrdf);
+    surface.Eval(L, sg, diffuseBrdf, specularBrdf);
     
-    float3 diffuseContribution, specularContribution;
+    diffuseContribution = 0; 
+    specularContribution = 0;
 
-    if (g_RtxdiBridgeConst.enableFinalMIS)
+    if (g_RtxdiBridgeConst.reStirGI.enableFinalMIS)
     {
-        float3 L0 = initialReservoir.position - surface.sd.posW;
+        float3 L0 = initialReservoir.position - surface.GetPosW();
         float hitDistance0 = length(L0);
         L0 /= hitDistance0;
 
         float3 diffuseBrdf0, specularBrdf0;
-        surface.bsdf.eval(surface.sd, L0, sg, diffuseBrdf0, specularBrdf0);
-
-        StandardBSDF roughBsdf = surface.bsdf;
-        roughBsdf.data.roughness = max(roughBsdf.data.roughness, kMISRoughness);
+        surface.Eval(L0, sg, diffuseBrdf0, specularBrdf0);
 
         float3 roughDiffuseBrdf, roughSpecularBrdf;
         float3 roughDiffuseBrdf0, roughSpecularBrdf0;
-        roughBsdf.eval(surface.sd, L, sg, roughDiffuseBrdf, roughSpecularBrdf);
-        roughBsdf.eval(surface.sd, L0, sg, roughDiffuseBrdf0, roughSpecularBrdf0);
+        surface.EvalRoughnessClamp(kMISRoughness, L, sg, roughDiffuseBrdf, roughSpecularBrdf);
+        surface.EvalRoughnessClamp(kMISRoughness, L0, sg, roughDiffuseBrdf0, roughSpecularBrdf0);
 
         const float finalWeight = 1.0 - GetMISWeight(roughDiffuseBrdf + roughSpecularBrdf, diffuseBrdf + specularBrdf);
         const float initialWeight = GetMISWeight(roughDiffuseBrdf0 + roughSpecularBrdf0, diffuseBrdf0 + specularBrdf0);
@@ -124,41 +117,62 @@ void main(uint2 GlobalIndex : SV_DispatchThreadID, uint2 LocalIndex : SV_GroupTh
         specularContribution = 0;
     }
 
-    StablePlanesContext stablePlanes = StablePlanesContext::make(GlobalIndex, u_StablePlanesHeader, u_StablePlanesBuffer, u_PrevStablePlanesHeader, u_PrevStablePlanesBuffer, u_StableRadiance, u_SecondarySurfaceRadiance, g_Const.ptConsts);
-
-    uint dominantStablePlaneIndex = stablePlanes.LoadDominantIndex();
-    uint address = stablePlanes.PixelToAddress(GlobalIndex, dominantStablePlaneIndex);
-
-    if (g_Const.ptConsts.denoisingEnabled)
-    {
-        float4 denoiserDiffRadianceHitDist;
-        float4 denoiserSpecRadianceHitDist;
-        UnpackTwoFp32ToFp16(u_StablePlanesBuffer[address].DenoiserPackedRadianceHitDist, denoiserDiffRadianceHitDist, denoiserSpecRadianceHitDist);
-
-        denoiserDiffRadianceHitDist = StablePlaneCombineWithHitTCompensation(denoiserDiffRadianceHitDist, diffuseContribution, hitDistance);
-        denoiserSpecRadianceHitDist = StablePlaneCombineWithHitTCompensation(denoiserSpecRadianceHitDist, specularContribution, hitDistance);
-
-        u_StablePlanesBuffer[address].DenoiserPackedRadianceHitDist = PackTwoFp32ToFp16(denoiserDiffRadianceHitDist, denoiserSpecRadianceHitDist);
-    }
-    else
-    {
-        u_Output[GlobalIndex] += float4(diffuseContribution + specularContribution, 0);
-    }
-
-
     DebugContext debug;
-    debug.Init( GlobalIndex, 0, g_Const.debug, u_FeedbackBuffer, u_DebugLinesBuffer, u_DebugDeltaPathTree, u_DeltaPathSearchStack, u_DebugVizOutput );
+    debug.Init( pixelPosition, 0, g_Const.debug, u_FeedbackBuffer, u_DebugLinesBuffer, u_DebugDeltaPathTree, u_DeltaPathSearchStack, u_DebugVizOutput );
 
     switch(g_Const.debug.debugViewType)
     {
     case (int)DebugViewType::SecondarySurfacePosition:
-        debug.DrawDebugViz(GlobalIndex, float4(abs(finalReservoir.position) * 0.1, 1.0));
+        debug.DrawDebugViz(pixelPosition, float4(abs(finalReservoir.position) * 0.1, 1.0));
         break;
     case (int)DebugViewType::SecondarySurfaceRadiance:
-        debug.DrawDebugViz(GlobalIndex, float4(finalReservoir.radiance, 1.0));
+        debug.DrawDebugViz(pixelPosition, float4(finalReservoir.radiance, 1.0));
         break;
     case (int)DebugViewType::ReSTIRGIOutput:
-        debug.DrawDebugViz(GlobalIndex, float4(diffuseContribution + specularContribution, 1.0));
+        debug.DrawDebugViz(pixelPosition, float4(diffuseContribution + specularContribution, 1.0));
         break;
     }
+
+    return any(diffuseContribution+specularContribution)>0;
 }
+
+#ifndef USE_AS_INCLUDE
+[numthreads(RTXDI_SCREEN_SPACE_GROUP_SIZE, RTXDI_SCREEN_SPACE_GROUP_SIZE, 1)]
+void main(uint2 GlobalIndex : SV_DispatchThreadID, uint2 LocalIndex : SV_GroupThreadID, uint2 GroupIdx : SV_GroupID)
+{
+    const uint2 reservoirPos = GlobalIndex.xy;
+    uint2 pixelPosition = RTXDI_ReservoirPosToPixelPos(GlobalIndex, g_RtxdiBridgeConst.runtimeParams);
+
+    RAB_Surface surface = RAB_GetGBufferSurface(pixelPosition, false);
+
+    if (!RAB_IsSurfaceValid(surface))
+        return;
+
+    float3 diffuseContribution, specularContribution;
+    float hitDistance;
+
+    if (ReSTIRGIFinalContribution(pixelPosition, surface, diffuseContribution, specularContribution, hitDistance))
+    {
+        if (g_Const.ptConsts.denoisingEnabled)
+        {
+            StablePlanesContext stablePlanes = StablePlanesContext::make(pixelPosition, u_StablePlanesHeader, u_StablePlanesBuffer, u_StableRadiance, u_SecondarySurfaceRadiance, g_Const.ptConsts);
+
+            uint dominantStablePlaneIndex = stablePlanes.LoadDominantIndexCenter();
+            uint address = stablePlanes.PixelToAddress(pixelPosition, dominantStablePlaneIndex);
+
+            float4 denoiserDiffRadianceHitDist;
+            float4 denoiserSpecRadianceHitDist;
+            UnpackTwoFp32ToFp16(u_StablePlanesBuffer[address].DenoiserPackedRadianceHitDist, denoiserDiffRadianceHitDist, denoiserSpecRadianceHitDist);
+
+            denoiserDiffRadianceHitDist = StablePlaneCombineWithHitTCompensation(denoiserDiffRadianceHitDist, diffuseContribution, hitDistance);
+            denoiserSpecRadianceHitDist = StablePlaneCombineWithHitTCompensation(denoiserSpecRadianceHitDist, specularContribution, hitDistance);
+
+            u_StablePlanesBuffer[address].DenoiserPackedRadianceHitDist = PackTwoFp32ToFp16(denoiserDiffRadianceHitDist, denoiserSpecRadianceHitDist);
+        }
+        else
+        {
+            u_Output[pixelPosition] += float4(diffuseContribution + specularContribution, 0);
+        }
+    }
+}
+#endif // #ifndef USE_AS_INCLUDE

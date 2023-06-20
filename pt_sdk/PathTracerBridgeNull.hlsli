@@ -28,6 +28,11 @@ uint Bridge::getMaxBounceLimit()
     return 1;
 }
 
+uint Bridge::getMaxDiffuseBounceLimit()
+{
+    return 1;
+}
+
 Ray Bridge::computeCameraRay(const uint2 pixelPos)
 {
     Ray ray; 
@@ -120,10 +125,6 @@ bool Bridge::traceVisibilityRay(RayDesc ray, const RayCone rayCone, const int pa
 }
 
 void Bridge::traceScatterRay(const PathState path, inout RayDesc ray, inout RayQuery<RAY_FLAG_NONE> rayQuery, inout PackedHitInfo packedHitInfo, inout int sortKey, DebugContext debug)
-{
-}
-
-void Bridge::getRtxdiDirectionAndDistance(uint2 pixelPos, out float4 dirValid, out float4 LiDistance)
 {
 }
 

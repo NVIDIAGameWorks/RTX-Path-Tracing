@@ -32,8 +32,9 @@ class NrdIntegration
 private:
     nvrhi::DeviceHandle m_Device;
     bool m_Initialized;
-    nrd::Denoiser* m_Denoiser;
-    nrd::Method m_Method;
+    nrd::Instance* m_Instance;
+    nrd::Denoiser m_Denoiser;
+    nrd::Identifier m_Identifier;
 
     struct NrdPipeline
     {
@@ -48,9 +49,9 @@ private:
     std::vector<nvrhi::TextureHandle> m_PermanentTextures;
     std::vector<nvrhi::TextureHandle> m_TransientTextures;
     donut::engine::BindingCache m_BindingCache;
-
 public:
-    NrdIntegration(nvrhi::IDevice* device, nrd::Method method);
+    NrdIntegration(nvrhi::IDevice* device, nrd::Denoiser method);
+    ~NrdIntegration();
 
     bool Initialize(uint32_t width, uint32_t height, donut::engine::ShaderFactory& shaderFactory);
     bool IsAvailable() const;
@@ -65,9 +66,10 @@ public:
         float disocclusionThreshold,
         float disocclusionThresholdAlternate,
         bool useDisocclusionThresholdAlternateMix,
+        bool enableValidation,
         const void* methodSettings);
 
-    const nrd::Method GetMethod() const { return m_Method; }
+    const nrd::Denoiser GetDenoiser() const { return m_Denoiser; }
 };
 
 #endif

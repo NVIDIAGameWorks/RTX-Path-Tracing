@@ -207,56 +207,22 @@ struct VisualizationConstants
     uint enableAccumulation;
 };
 
-struct RtxdiBridgeConstants {
-    RTXDI_ResamplingRuntimeParameters runtimeParams;
-
-	float3 cameraPosition;
-	uint frameIndex;
-
-	float3 cameraU;
-	uint pixelCount;
-
-	float3 cameraV;
-	uint finalShadingReservoir;
-
-	float3 cameraW;
-	float rayEpsilon;
-
-	float3 prevCameraU;
-	uint currentSampleIndex;
-
-	float3 prevCameraV;
-	uint previousSampleIndex;
-
-	float3 prevCameraW;
-	uint enableAA;
-
-	uint2 frameDim;
-	uint currentSurfaceBufferIdx;
-	uint prevSurfaceBufferIdx;
-
-    uint environmentMapImportanceSampling;
-	float environmentScale;
-	float environmentRotation;
-    uint discardInvisibleSamples;
-
-	uint2 environmentPdfTextureSize;
-	uint2 localLightPdfTextureSize;
-
-	uint temporalBiasCorrection;
-	uint spatialBiasCorrection;
-    uint initialOutputBufferIndex;
-    uint numRegirBuildSamples;
-
+struct ReStirDIConstants
+{
+	uint initialOutputBufferIndex;
 	uint temporalInputBufferIndex;
 	uint temporalOutputBufferIndex;
 	uint spatialInputBufferIndex;
-	uint spatialOutputBufferIndex;
 
-    uint enableInitialVisibility;
-    uint enableFinalVisibility;
-    uint enablePermutationSampling;
-    uint visualizeRegirCells;
+	uint spatialOutputBufferIndex;
+	uint finalShadingReservoir;
+	uint discardInvisibleSamples;
+    uint numRegirBuildSamples;
+   
+	uint enableInitialVisibility;
+	uint enableFinalVisibility;
+	uint enablePermutationSampling;
+	float brdfCutoff;
 
 	uint numPrimaryRegirSamples;
 	uint numPrimaryLocalLightSamples;
@@ -267,21 +233,74 @@ struct RtxdiBridgeConstants {
 	uint maxHistoryLength;
 	uint numSpatialSamples;
 	uint numDisocclusionBoostSamples;
+    	
+	float temporalDepthThreshold;
+	float temporalNormalThreshold;
+	uint temporalBiasCorrection;
+	float boilingFilterStrength;
 
-	float brdfCutoff;
 	float spatialSamplingRadius;
 	float spatialDepthThreshold;
 	float spatialNormalThreshold;
+    uint spatialBiasCorrection;
+	
+    uint discountNaiveSamples;
+    uint visualizeRegirCells; 
+	uint _padding0;
+	uint _padding1;
+    
+};
 
-	float temporalDepthThreshold;
-	float temporalNormalThreshold;
-    float boilingFilterStrength;
-    uint maxLights;
+struct ReStirGIConstants {
+    
+    uint temporalInputBufferIndex;
+	uint temporalOutputBufferIndex;
+	uint spatialInputBufferIndex;
+	uint spatialOutputBufferIndex;
 
-    uint maxReservoirAge;
+    uint finalShadingReservoir; 
     uint enableTemporalResampling;
+    uint maxHistoryLength;
+    uint maxReservoirAge;
+
+    uint enablePermutationSampling;
     uint enableFallbackSampling;
+    float boilingFilterStrength;
+	float temporalDepthThreshold;
+
+	float temporalNormalThreshold;
+    uint temporalBiasCorrection;
+	uint numSpatialSamples; 
+    float spatialSamplingRadius;
+	
+    float spatialDepthThreshold;
+	float spatialNormalThreshold;
+    uint spatialBiasCorrection;
+    uint enableFinalVisibility;
+
     uint enableFinalMIS;
+    uint _padding0; 
+    uint _padding1;
+    uint _padding2;
+};
+
+struct RtxdiBridgeConstants 
+{
+	RTXDI_ResamplingRuntimeParameters runtimeParams;
+    ReStirDIConstants reStirDI;
+    ReStirGIConstants reStirGI;
+
+	uint frameIndex;
+	uint environmentMapImportanceSampling;
+	uint maxLights;
+	float rayEpsilon;
+
+	uint2 environmentPdfTextureSize;
+	uint2 localLightPdfTextureSize;
+
+	uint2 frameDim;
+    uint environmentPdfLastMipLevel;
+    uint localLightPdfLastMipLevel;
 };
 
 struct SecondarySurface
@@ -294,13 +313,24 @@ struct SecondarySurface
     uint specularAndRoughness;
 };
 
-struct PackedSurfaceData
+struct PackedPathTracerSurfaceData
 {
-	float3 position;
-	float viewDepth;
-	uint packedNormal;
-	uint packedWeights;
-	uint2 _pad;
+    float3 _posW;
+    uint _faceN;                            // fp16[3]
+    uint2 _mtl;                             // Falcor::MaterialDefinition
+    uint2 _V;                               // fp16[3]
+
+    // misc (mostly subset of struct ShadingData)
+    uint _T;                                // octFp16
+    uint _N;                                // octFp16
+    uint _viewDepth_planeHash_isEmpty_frontFacing;	// (fp16) | u15 | u1
+
+    // StandardBSDFData (All fields nessesary)
+    uint _diffuse;							// R11G11B10_FLOAT
+    uint _specular;							// R11G11B10_FLOAT
+    uint _roughnessMetallicEta;				// R11G11B10_FLOAT
+    uint _transmission;						// R11G11B10_FLOAT
+    uint _diffuseSpecularTransmission;		// fp16 | fp16
 };
 
 static const uint kPolymorphicLightTypeShift = 24;

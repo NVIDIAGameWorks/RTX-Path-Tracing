@@ -171,48 +171,39 @@ enum MaterialAttributes
     MatAttr_All          = 0x1F
 };
 
-MaterialSample sampleGeometryMaterial(const uniform OptimizationHints optimizationHints, DonutGeometrySample gs, MaterialAttributes attributes, SamplerState materialSampler, ActiveTextureSampler textureSampler)
+float4 sampleTexture(uint textureIndexAndInfo, SamplerState samplerState, const ActiveTextureSampler textureSampler, float2 uv)
+{
+    uint textureIndex = textureIndexAndInfo & 0xFFFF;
+    uint baseLOD = textureIndexAndInfo>>24;
+    uint mipLevels = (textureIndexAndInfo>>16) & 0xFF;
+
+    Texture2D tex2D = t_BindlessTextures[NonUniformResourceIndex(textureIndex)];
+
+    return textureSampler.sampleTexture(tex2D, samplerState, uv, baseLOD, mipLevels);
+}
+
+MaterialSample sampleGeometryMaterial(uniform OptimizationHints optimizationHints, const DonutGeometrySample gs, const MaterialAttributes attributes, const SamplerState materialSampler, const ActiveTextureSampler textureSampler)
 {
     MaterialTextureSample textures = DefaultMaterialTextures();
 
     if( !optimizationHints.NoTextures )
     {
-        if ((attributes & MatAttr_BaseColor) && (gs.material.baseOrDiffuseTextureIndex >= 0) && (gs.material.flags & MaterialFlags_UseBaseOrDiffuseTexture) != 0)
-        {
-            Texture2D diffuseTexture = t_BindlessTextures[NonUniformResourceIndex(gs.material.baseOrDiffuseTextureIndex)];
+        if ((attributes & MatAttr_BaseColor) && (gs.material.flags & MaterialFlags_UseBaseOrDiffuseTexture) != 0)
+            textures.baseOrDiffuse = sampleTexture(gs.material.baseOrDiffuseTextureIndex, materialSampler, textureSampler, gs.texcoord);
 
-            textures.baseOrDiffuse = textureSampler.sampleTexture(diffuseTexture, materialSampler, gs.texcoord, DEBUG_VIZ_MIP_COLORS);
-        }
-
-        if ((attributes & MatAttr_Emissive) && (gs.material.emissiveTextureIndex >= 0) && (gs.material.flags & MaterialFlags_UseEmissiveTexture) != 0)
-        {
-            Texture2D emissiveTexture = t_BindlessTextures[NonUniformResourceIndex(gs.material.emissiveTextureIndex)];
-        
-            textures.emissive = textureSampler.sampleTexture(emissiveTexture, materialSampler, gs.texcoord);
-        }
+        if ((attributes & MatAttr_Emissive) && (gs.material.flags & MaterialFlags_UseEmissiveTexture) != 0)
+            textures.emissive = sampleTexture(gs.material.emissiveTextureIndex, materialSampler, textureSampler, gs.texcoord);
     
-        if ((attributes & MatAttr_Normal) && (gs.material.normalTextureIndex >= 0) && (gs.material.flags & MaterialFlags_UseNormalTexture) != 0)
-        {
-            Texture2D normalsTexture = t_BindlessTextures[NonUniformResourceIndex(gs.material.normalTextureIndex)];
-        
-            textures.normal = textureSampler.sampleTexture(normalsTexture, materialSampler, gs.texcoord);
-        }
+        if ((attributes & MatAttr_Normal) && (gs.material.flags & MaterialFlags_UseNormalTexture) != 0)
+            textures.normal = sampleTexture(gs.material.normalTextureIndex, materialSampler, textureSampler, gs.texcoord);
 
-        if ((attributes & MatAttr_MetalRough) && (gs.material.metalRoughOrSpecularTextureIndex >= 0) && (gs.material.flags & MaterialFlags_UseMetalRoughOrSpecularTexture) != 0)
-        {
-            Texture2D specularTexture = t_BindlessTextures[NonUniformResourceIndex(gs.material.metalRoughOrSpecularTextureIndex)];
-
-            textures.metalRoughOrSpecular = textureSampler.sampleTexture(specularTexture, materialSampler, gs.texcoord);
-        }
+        if ((attributes & MatAttr_MetalRough) && (gs.material.flags & MaterialFlags_UseMetalRoughOrSpecularTexture) != 0)
+            textures.metalRoughOrSpecular = sampleTexture(gs.material.metalRoughOrSpecularTextureIndex, materialSampler, textureSampler, gs.texcoord);
 
         if( !optimizationHints.NoTransmission )
         {
-            if ((attributes & MatAttr_Transmission) && (gs.material.transmissionTextureIndex >= 0) && (gs.material.flags & MaterialFlags_UseTransmissionTexture) != 0)
-            {
-                Texture2D transmissionTexture = t_BindlessTextures[NonUniformResourceIndex(gs.material.transmissionTextureIndex)];
-
-                textures.transmission = textureSampler.sampleTexture(transmissionTexture, materialSampler, gs.texcoord);
-            }
+            if ((attributes & MatAttr_Transmission) && (gs.material.flags & MaterialFlags_UseTransmissionTexture) != 0)
+                textures.transmission = sampleTexture(gs.material.transmissionTextureIndex, materialSampler, textureSampler, gs.texcoord);
         }
     }
 
@@ -296,6 +287,11 @@ uint Bridge::getSampleIndex()
 uint Bridge::getMaxBounceLimit()
 {
     return g_Const.ptConsts.bounceCount;
+}
+
+uint Bridge::getMaxDiffuseBounceLimit()
+{
+    return g_Const.ptConsts.diffuseBounceCount;
 }
 
 Ray Bridge::computeCameraRay(const uint2 pixelPos)
@@ -746,7 +742,7 @@ bool Bridge::traceVisibilityRay(RayDesc ray, const RayCone rayCone, const int pa
     }
 
         
-#if ENABLE_DEBUG_VIZUALISATION && !NON_PATH_TRACING_PASS && STABLE_PLANES_MODE!=STABLE_PLANES_BUILD_PASS
+#if ENABLE_DEBUG_VIZUALISATION && !NON_PATH_TRACING_PASS && PATH_TRACER_MODE!=PATH_TRACER_MODE_BUILD_STABLE_PLANES
     float visible = rayQuery.CommittedStatus() == COMMITTED_TRIANGLE_HIT;
     if (rayQuery.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
         ray.TMax = rayQuery.CommittedRayT();    // <- this gets passed via NvMakeHitWithRecordIndex/NvInvokeHitObject as RayTCurrent() or similar in ubershader path
@@ -761,7 +757,6 @@ bool Bridge::traceVisibilityRay(RayDesc ray, const RayCone rayCone, const int pa
 
 void Bridge::traceScatterRay(const PathState path, inout RayDesc ray, inout RayQuery<RAY_FLAG_NONE> rayQuery, inout PackedHitInfo packedHitInfo, inout int sortKey, DebugContext debug)
 {
-    sortKey = 0;
     ray = path.getScatterRay().toRayDesc();
     rayQuery.TraceRayInline(SceneBVH, RAY_FLAG_NONE, 0xff, ray);
 
@@ -801,13 +796,8 @@ void Bridge::traceScatterRay(const PathState path, inout RayDesc ray, inout RayQ
     else
     {
         packedHitInfo = PACKED_HIT_INFO_ZERO; // this invokes miss shader a.k.a. sky!
+        sortKey = 0;
     }
-}
-
-void Bridge::getRtxdiDirectionAndDistance(uint2 pixelPos, out float4 dirValid, out float4 LiDistance)
-{
-    dirValid = u_RtxdiOutDirectionValid[pixelPos];
-    LiDistance = u_RtxdiLiDistance[pixelPos];
 }
 
 void Bridge::StoreSecondarySurfacePositionAndNormal(uint2 pixelCoordinate, float3 worldPos, float3 normal)

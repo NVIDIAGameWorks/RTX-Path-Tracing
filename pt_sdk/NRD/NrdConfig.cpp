@@ -23,9 +23,9 @@ namespace NrdConfig {
 
         settings.enableReprojectionTestSkippingWithoutMotion = false;
 
-        // (pixels) - pre-accumulation spatial reuse pass blur radius (0 = disabled, must be used in case of probabilistic sampling)
-        settings.diffusePrepassBlurRadius = 0.0f;   // value >0 helps with boiling but will mess up shadows
-        settings.specularPrepassBlurRadius = 0.0f;  // value >0 helps with boiling but will mess up shadows
+        // (pixels) - pre-accumulation spatial reuse pass blur radius (0 = disabled, must be used in case of probabilistic sampling) <- we're using probabilistic sampling
+        settings.diffusePrepassBlurRadius = 0.0f; 
+        settings.specularPrepassBlurRadius = 0.0f;
 
         // diffuse
         settings.diffuseMaxFastAccumulatedFrameNum = 4;
@@ -40,7 +40,7 @@ namespace NrdConfig {
         settings.roughnessEdgeStoppingRelaxation = 0.3f;
         settings.specularLobeAngleFraction = 0.93f;
 
-        settings.atrousIterationNum = 6;
+        settings.atrousIterationNum = 5;
 
         settings.diffuseMaxAccumulatedFrameNum = 60;
         settings.specularMaxAccumulatedFrameNum = 60;
@@ -54,8 +54,12 @@ namespace NrdConfig {
 
         nrd::ReblurSettings settings;
         settings.enableAntiFirefly = true;
-        settings.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::AREA_3X3;
+        settings.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::AREA_5X5;
         settings.maxAccumulatedFrameNum = 60;
+
+        // (pixels) - pre-accumulation spatial reuse pass blur radius (0 = disabled, must be used in case of probabilistic sampling) <- we're using probabilistic sampling
+        settings.diffusePrepassBlurRadius = 0.0f;
+        settings.specularPrepassBlurRadius = 0.0f;
 
         return settings;
     }

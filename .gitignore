@@ -2,6 +2,7 @@ bin/
 build*/
 .vs
 nvapi/
+/external/NVAPI
 nrd.cfg
 omm.cfg
 media/

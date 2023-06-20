@@ -51,11 +51,12 @@ void RayGen()
 
     RTXDI_Reservoir temporalResult = RTXDI_EmptyReservoir();
     int2 temporalSamplePixelPos = -1;
-    
+    RAB_LightSample selectedLightSample = (RAB_LightSample)0;
+
     if (RAB_IsSurfaceValid(surface))
     {
         RTXDI_Reservoir curSample = RTXDI_LoadReservoir(runtimeParams,
-            GlobalIndex, g_RtxdiBridgeConst.initialOutputBufferIndex);
+            GlobalIndex, g_RtxdiBridgeConst.reStirDI.initialOutputBufferIndex);
 
         float3 motionVector = u_MotionVectors[pixelPosition].xyz;
 
@@ -63,26 +64,24 @@ void RayGen()
 
         RTXDI_TemporalResamplingParameters tparams;
         tparams.screenSpaceMotion = motionVector;
-        tparams.sourceBufferIndex = g_RtxdiBridgeConst.temporalInputBufferIndex;
-        tparams.maxHistoryLength = g_RtxdiBridgeConst.maxHistoryLength;
-        tparams.biasCorrectionMode = g_RtxdiBridgeConst.temporalBiasCorrection;
-        tparams.depthThreshold = g_RtxdiBridgeConst.temporalDepthThreshold;
-        tparams.normalThreshold = g_RtxdiBridgeConst.temporalNormalThreshold;
-        tparams.enableVisibilityShortcut = g_RtxdiBridgeConst.discardInvisibleSamples;
-        tparams.enablePermutationSampling = g_RtxdiBridgeConst.enablePermutationSampling;
-        
-        RAB_LightSample selectedLightSample = (RAB_LightSample)0;
+        tparams.sourceBufferIndex = g_RtxdiBridgeConst.reStirDI.temporalInputBufferIndex;
+        tparams.maxHistoryLength = g_RtxdiBridgeConst.reStirDI.maxHistoryLength;
+        tparams.biasCorrectionMode = g_RtxdiBridgeConst.reStirDI.temporalBiasCorrection;
+        tparams.depthThreshold = g_RtxdiBridgeConst.reStirDI.temporalDepthThreshold;
+        tparams.normalThreshold = g_RtxdiBridgeConst.reStirDI.temporalNormalThreshold;
+        tparams.enableVisibilityShortcut = g_RtxdiBridgeConst.reStirDI.discardInvisibleSamples;
+        tparams.enablePermutationSampling = g_RtxdiBridgeConst.reStirDI.enablePermutationSampling;
         
         temporalResult = RTXDI_TemporalResampling(pixelPosition, surface, curSample,
             rng, tparams, runtimeParams, temporalSamplePixelPos, selectedLightSample);
     }
 
 #ifdef RTXDI_ENABLE_BOILING_FILTER
-    if  (g_RtxdiBridgeConst.boilingFilterStrength > 0)
+    if  (g_RtxdiBridgeConst.reStirDI.boilingFilterStrength > 0)
     {
-        RTXDI_BoilingFilter(LocalIndex, g_RtxdiBridgeConst.boilingFilterStrength, runtimeParams, temporalResult);
+        RTXDI_BoilingFilter(LocalIndex, g_RtxdiBridgeConst.reStirDI.boilingFilterStrength, runtimeParams, temporalResult);
     }
 #endif
     
-    RTXDI_StoreReservoir(temporalResult, runtimeParams, GlobalIndex, g_RtxdiBridgeConst.temporalOutputBufferIndex);
+    RTXDI_StoreReservoir(temporalResult, runtimeParams, GlobalIndex, g_RtxdiBridgeConst.reStirDI.temporalOutputBufferIndex);
 }

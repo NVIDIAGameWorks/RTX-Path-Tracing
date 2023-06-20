@@ -102,7 +102,7 @@ struct PathState
     PackedHitInfo hitPacked;            ///< Hit information for the scatter ray. This is populated at committed triangle hits. 4 uints (16 bytes)
 
     float3      thp;                    ///< Path throughput.
-#if STABLE_PLANES_MODE!=STABLE_PLANES_NOISY_PASS // nothing to accumulate in this case - all goes to denoiser
+#if PATH_TRACER_MODE!=PATH_TRACER_MODE_FILL_STABLE_PLANES // nothing to accumulate in this case - all goes to denoiser
     float3      L;                      ///< Accumulated path contribution.
 #else
     float4      denoiserDiffRadianceHitDist;
@@ -115,10 +115,9 @@ struct PathState
     GuideData   guideData;              ///< Denoiser guide data.
 #endif
     InteriorList interiorList;          ///< Interior list. Keeping track of a stack of materials with medium properties. Size depends on INTERIOR_LIST_SLOT_COUNT. 2 slots (8 bytes) by default.
-    SampleGenerator sg;                 ///< Sample generator state. Typically 4-16B.
     RayCone     rayCone;                ///< 4 or 8 bytes depending on USE_RAYCONES_WITH_FP16_IN_RAYPAYLOAD (on, so 4 bytes by default). 
 
-#if STABLE_PLANES_MODE==STABLE_PLANES_BUILD_PASS
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES
     float3x3    imageXform;             ///< Accumulated rotational image transform along the path. This can be float16_t.
 #endif
 

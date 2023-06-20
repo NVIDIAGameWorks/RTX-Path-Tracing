@@ -23,5 +23,5 @@ void main(uint GlobalIndex : SV_DispatchThreadID)
     RAB_RandomSamplerState coherentRng = RAB_InitRandomSampler(uint2(GlobalIndex >> 8, 0), 1);
 
     RTXDI_PresampleLocalLightsForReGIR(rng, coherentRng, GlobalIndex, 
-        g_RtxdiBridgeConst.numRegirBuildSamples, params);
+        g_RtxdiBridgeConst.reStirDI.numRegirBuildSamples, params);
 }

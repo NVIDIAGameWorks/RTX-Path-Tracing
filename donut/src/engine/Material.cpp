@@ -27,9 +27,28 @@ using namespace donut::math;
 
 namespace donut::engine
 {
-    static int GetBindlessTextureIndex(const std::shared_ptr<LoadedTexture>& texture)
+    static void GetBindlessTextureIndex(const std::shared_ptr<LoadedTexture>& texture, uint & outEncodedInfo, unsigned int & flags, unsigned int textureBit)
     {
-        return texture ? texture->bindlessDescriptor.Get() : -1;
+        // if bit not set, don't set the texture; if texture unavailable - remove the texture bit!
+        if ((flags & textureBit) == 0 || texture==nullptr || texture->texture==nullptr)
+        {
+            outEncodedInfo = 0xFFFFFFFF;
+            flags &= ~textureBit; // remove flag
+            return;
+        }
+
+        uint bindlessDescIndex = texture->bindlessDescriptor.Get();
+        assert( bindlessDescIndex <= 0xFFFF );
+        bindlessDescIndex &= 0xFFFF;
+
+        const auto desc = texture->texture->getDesc();
+        float baseLODf = donut::math::log2f((float)desc.width * desc.height);
+        uint baseLOD = (uint)(baseLODf+0.5f);
+        uint mipLevels = desc.mipLevels;
+        assert( baseLOD >= 0 && baseLOD <= 255 );
+        assert( mipLevels >= 0 && mipLevels <= 255 );
+
+        outEncodedInfo = (baseLOD << 24) | (mipLevels << 16) | bindlessDescIndex;
     }
 
     void Material::FillConstantBuffer(MaterialConstants& constants) const
@@ -125,12 +144,12 @@ namespace donut::engine
 
         // bindless textures
 
-        constants.baseOrDiffuseTextureIndex = GetBindlessTextureIndex(baseOrDiffuseTexture);
-        constants.metalRoughOrSpecularTextureIndex = GetBindlessTextureIndex(metalRoughOrSpecularTexture);
-        constants.normalTextureIndex = GetBindlessTextureIndex(normalTexture);
-        constants.emissiveTextureIndex = GetBindlessTextureIndex(emissiveTexture);
-        constants.occlusionTextureIndex = GetBindlessTextureIndex(occlusionTexture);
-        constants.transmissionTextureIndex = GetBindlessTextureIndex(transmissionTexture);
+        GetBindlessTextureIndex(baseOrDiffuseTexture, constants.baseOrDiffuseTextureIndex, constants.flags, MaterialFlags_UseBaseOrDiffuseTexture );
+        GetBindlessTextureIndex(metalRoughOrSpecularTexture, constants.metalRoughOrSpecularTextureIndex, constants.flags, MaterialFlags_UseMetalRoughOrSpecularTexture );
+        GetBindlessTextureIndex(emissiveTexture, constants.emissiveTextureIndex, constants.flags, MaterialFlags_UseEmissiveTexture );
+        GetBindlessTextureIndex(normalTexture, constants.normalTextureIndex, constants.flags, MaterialFlags_UseNormalTexture );
+        GetBindlessTextureIndex(occlusionTexture, constants.occlusionTextureIndex, constants.flags, MaterialFlags_UseOcclusionTexture );
+        GetBindlessTextureIndex(transmissionTexture, constants.transmissionTextureIndex, constants.flags, MaterialFlags_UseTransmissionTexture );
 
         constants.flags |= (uint)(min(nestedPriority, kMaterialMaxNestedPriority)) << MaterialFlags_NestedPriorityShift;
         constants.flags |= (uint)(clamp(psdDominantDeltaLobe+1, 0, 7)) << MaterialFlags_PSDDominantDeltaLobeP1Shift;

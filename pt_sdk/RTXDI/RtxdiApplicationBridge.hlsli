@@ -46,7 +46,6 @@ Buffer<uint> t_LightIndexMappingBuffer                      : register(t23 VK_DE
 Texture2D t_EnvironmentPdfTexture                           : register(t24 VK_DESCRIPTOR_SET(2));
 Texture2D t_LocalLightPdfTexture                            : register(t25 VK_DESCRIPTOR_SET(2));
 StructuredBuffer<uint> t_GeometryInstanceToLight            : register(t26 VK_DESCRIPTOR_SET(2));
-StructuredBuffer<PackedSurfaceData> t_SurfaceData           : register(t28 VK_DESCRIPTOR_SET(2));
 
 // Screen-sized UAVs
 RWStructuredBuffer<RTXDI_PackedReservoir> u_LightReservoirs : register(u13 VK_DESCRIPTOR_SET(2));
@@ -215,12 +214,6 @@ RayHitInfo TraceVisibilityRay(RaytracingAccelerationStructure accelStruct, RayDe
 #endif
 }
 
-// This is a no opt for PT_SDK surfaces as we do not store a packed surface. Returns empty surface
-RAB_Surface MakeRABSurface(PackedSurfaceData packedSurface, float3 viewDir)
-{
-    return PathTracerSurfaceData::makeEmpty();
-}
-
 struct RAB_LightSample
 {
     float3 position;
@@ -271,57 +264,6 @@ RAB_LightSample RAB_EmptyLightSample()
     return (RAB_LightSample)0;
 }
 
-// generate a sub-pixel offset with the same method as the PT_SDK Bridge 
-// See computeCameraRay in Bridge.hlsli 
-// Not use currently 
-float2 getPerPixelJitter(uint2 pixel, bool previousFrame)
-{
-   /* uint sampleIndex = previousFrame ?
-        g_RtxdiBridgeConst.previousSampleIndex :
-        g_RtxdiBridgeConst.currentSampleIndex;
-
-    SampleGenerator sg = SampleGenerator::make(pixel, sampleIndex); 
-    float2 jitter = sampleNext2D(sg) - 0.5.xx;
-  
-    jitter.x *= -1;
-
-     
-    return jitter; */
-    return float2(0, 0);
-}
-
-// Get the sub pixel offset. 
-float2 getJitter(uint2 pixel, bool previousFrame)
-{
-     float2 jitter = previousFrame ?
-         g_Const.previousView.pixelOffset :
-         g_Const.view.pixelOffset;
-
-    return jitter * float2(1, -1);
-}
-
-
-// Gbuffer input and accessor functions
-// A copy of Falcor's Camera::computeRayPinhole() method that works for current/last frame.
-float3 computeRayDirection(uint2 pixel, bool previousFrame)
-{
-    const float2 jitter = g_RtxdiBridgeConst.enableAA ?
-        getPerPixelJitter(pixel, previousFrame) :
-        getJitter(pixel, previousFrame);
-
-    // Compute sample postion in screen space in [0,1] with origin at the top left corner.
-    //The camera jitter offsets the sample by +-0.5 pixels from the pixel centre
-    const float2 p = (pixel + float2(0.5f, 0.5f) + float2(-jitter.x, jitter.y)) / g_RtxdiBridgeConst.frameDim;
-    const float2 ndc = float2(2, -2) * p + float2(-1, 1);
-        
-    const float3 cameraU = previousFrame ? g_RtxdiBridgeConst.prevCameraU : g_RtxdiBridgeConst.cameraU;
-    const float3 cameraV = previousFrame ? g_RtxdiBridgeConst.prevCameraV : g_RtxdiBridgeConst.cameraV;
-    const float3 cameraW = previousFrame ? g_RtxdiBridgeConst.prevCameraW : g_RtxdiBridgeConst.cameraW;
-
-    //Compute the normalized ray direction assuming a pinhole camera
-    return normalize((ndc.x * cameraU) + (ndc.y * cameraV) + cameraW);
-}
-
 int2 RAB_ClampSamplePositionIntoView(int2 pixelPosition, bool previousFrame)
 {
     return clamp(pixelPosition, 0, int2(g_Const.ptConsts.imageWidth, g_Const.ptConsts.imageHeight) - 1);
@@ -329,11 +271,14 @@ int2 RAB_ClampSamplePositionIntoView(int2 pixelPosition, bool previousFrame)
 
 RAB_Surface RAB_GetGBufferSurface(int2 pixelPosition, bool previousFrame)
 {
-#ifdef RAB_FOR_RESTIR_GI_PASS
-    return getGBufferSurface(pixelPosition, previousFrame, OptimizationHints::make(false, false, false, true));
-#else
-    return getGBufferSurface(pixelPosition, previousFrame, OptimizationHints::make(false, true, false, true));
+    RAB_Surface surface = getGBufferSurface(pixelPosition, previousFrame);
+
+    // I'm unsure if ReSTIR GI needs transmission or not; I can't see any difference between below on/off for ReSTIR GI but this needs a follow-up
+#if !RAB_SURFACE_INCLUDE_TRANSMISSION
+    surface.RemoveTransmission();   // this allows compiler to compile out quite a bit of code and saves ~3-4% compute time on RTXDI
 #endif
+
+    return surface;
 }
 
 // Checks if the given surface is valid, see RAB_GetGBufferSurface.
@@ -347,7 +292,7 @@ float3 RAB_GetSurfaceWorldPos(RAB_Surface surface)
 {
     // Should we use posW instead?
     //return surface.sd.posW;
-    return surface.sd.computeNewRayOrigin();
+    return surface.ComputeNewRayOrigin();
     //return surface.position;
 }
 
@@ -355,13 +300,13 @@ float3 RAB_GetSurfaceWorldPos(RAB_Surface surface)
 float3 RAB_GetNewRayOrigin(RAB_Surface surface)
 {
     // Should we use posW instead?
-    return surface.sd.computeNewRayOrigin();
+    return surface.ComputeNewRayOrigin();
 }
 
 // Returns the world shading normal of the given surface
 float3 RAB_GetSurfaceNormal(RAB_Surface surface)
 {
-    return surface.sd.N;
+    return surface.GetNormal();
 }
 
 // Returns the linear depth of the given surface.
@@ -370,7 +315,7 @@ float3 RAB_GetSurfaceNormal(RAB_Surface surface)
 // Just make sure that the motion vectors' .z component follows the same logic.
 float RAB_GetSurfaceLinearDepth(RAB_Surface surface)
 {
-    return surface.viewDepth;
+    return surface.GetViewDepth();
 }
 
 
@@ -482,18 +427,16 @@ float RAB_EvaluateEnvironmentMapSamplingPdf(float3 L)
     uint2 texelPosition = uint2(pdfTextureSize * uv);
     float texelValue = t_EnvironmentPdfTexture[texelPosition].r;
 
-    int lastMipLevel = max(0, int(floor(log2(max(pdfTextureSize.x, pdfTextureSize.y)))) - 1);
-    float averageValue = 0.5 * (
-        t_EnvironmentPdfTexture.mips[lastMipLevel][uint2(0, 0)].x +
-        t_EnvironmentPdfTexture.mips[lastMipLevel][uint2(1, 0)].x);
+    int lastMipLevel = g_RtxdiBridgeConst.environmentPdfLastMipLevel;
+    float averageValue = t_EnvironmentPdfTexture.mips[lastMipLevel][uint2(0, 0)].x;
 
-    // the selection probability is multiplied by numTexels in RTXDI during presampling
-    // so actually numTexels cancels out in this case
-    //
-    // uint numTexels = pdfTextureSize.x * pdfTextureSize.y;
-    // float totalSum = averageValue * numTexels;
-    // return texelValue * numTexels / totalSum;
-    return texelValue / averageValue;
+    // The single texel in the last mip level is effectively the average of all texels in mip 0,
+    // padded to a square shape with zeros. So, in case the PDF texture has a 2:1 aspect ratio,
+    // that texel's value is only half of the true average of the rectangular input texture.
+    // Compensate for that by assuming that the input texture is square.
+    float sum = averageValue * square(1u << lastMipLevel);
+    
+    return texelValue / sum;
 }
 
 // Evaluates pdf for a particular light
@@ -503,10 +446,12 @@ float RAB_EvaluateLocalLightSourcePdf(RTXDI_ResamplingRuntimeParameters params, 
     uint2 texelPosition = RTXDI_LinearIndexToZCurve(lightIndex);
     float texelValue = t_LocalLightPdfTexture[texelPosition].r;
 
-    int lastMipLevel = max(0, int(floor(log2(max(pdfTextureSize.x, pdfTextureSize.y)))));
+    int lastMipLevel = g_RtxdiBridgeConst.localLightPdfLastMipLevel;
     float averageValue = t_LocalLightPdfTexture.mips[lastMipLevel][uint2(0, 0)].x;
 
-    float sum = averageValue * pdfTextureSize.x * pdfTextureSize.y;
+    // See the comment at 'sum' in RAB_EvaluateEnvironmentMapSamplingPdf.
+    // The same texture shape considerations apply to local lights.
+    float sum = averageValue * square(1u << lastMipLevel);
 
     return texelValue / sum;
 }
@@ -514,8 +459,8 @@ float RAB_EvaluateLocalLightSourcePdf(RTXDI_ResamplingRuntimeParameters params, 
 //Sampling functions
 float getSurfaceDiffuseProbability(RAB_Surface surface)
 {
-    float diffuseWeight = luminance(surface.bsdf.data.diffuse);
-    float specularWeight = luminance(Schlick_Fresnel(surface.bsdf.data.specular, dot(surface.sd.V, surface.sd.N)));
+    float diffuseWeight = luminance(surface.GetDiffuse());
+    float specularWeight = luminance(Schlick_Fresnel(surface.GetSpecular(), dot(surface.GetView(), surface.GetNormal())));
     float sumWeights = diffuseWeight + specularWeight;
     return sumWeights < 1e-7f ? 1.f : (diffuseWeight / sumWeights);
 }
@@ -540,9 +485,9 @@ float RAB_GetLightSampleTargetPdfForSurface(RAB_LightSample lightSample, RAB_Sur
 
     // Dummy random sampler, we need to extend this function to add RAB_RandomSamplerState. 
     // But it does appear to be needed by the eval function currently
-    SampleGenerator sg = SampleGenerator::make(surface.sd.posW.xy, g_RtxdiBridgeConst.frameIndex, Bridge::getSampleIndex());
+    SampleGenerator sg = SampleGenerator::make(surface.GetPosW().xy, g_RtxdiBridgeConst.frameIndex, Bridge::getSampleIndex());
 
-    float3 fullBRDF = surface.bsdf.eval(surface.sd, toLight, sg);
+    float3 fullBRDF = surface.Eval(toLight, sg);
     return luminance(fullBRDF * lightSample.radiance) / lightSample.solidAnglePdf;
 
 }
@@ -571,10 +516,10 @@ float3 tangentToWorld(RAB_Surface surface, float3 h)
     // reconstruct tangent frame based off worldspace normal
     // this is ok for isotropic BRDFs
     // for anisotropic BRDFs, we need a user defined tangent
-    float3 bitangent = perp_stark(surface.sd.N);
-    float3 tangent = cross(bitangent, surface.sd.N);
+    float3 bitangent = perp_stark(surface.GetNormal());
+    float3 tangent = cross(bitangent, surface.GetNormal());
 
-    return bitangent * h.x + tangent * h.y + surface.sd.N * h.z;
+    return bitangent * h.x + tangent * h.y + surface.GetNormal() * h.z;
     //// reconstruct tangent frame based off worldspace normal
     //// this is ok for isotropic BRDFs
     //// for anisotropic BRDFs, we need a user defined tangent
@@ -589,7 +534,7 @@ float3 tangentToWorld(RAB_Surface surface, float3 h)
 bool RAB_GetSurfaceBrdfSample(RAB_Surface surface, inout RAB_RandomSamplerState rng, out float3 dir)
 {
     BSDFSample result;
-    surface.bsdf.sample(surface.sd, rng, result, true);
+    surface.Sample(rng, result, true);
 
     dir = result.wo;
     return dot(RAB_GetSurfaceNormal(surface), dir) > 0.f;
@@ -600,7 +545,7 @@ float RAB_GetSurfaceBrdfPdf(RAB_Surface surface, float3 dir)
 {
    if (dot(RAB_GetSurfaceNormal(surface), dir) <= 0.f)
         return 0;
-    return surface.bsdf.evalPdf(surface.sd, dir, true);
+    return surface.EvalPdf(dir, true);
 }
 
 
@@ -654,12 +599,12 @@ RayDesc setupVisibilityRay(RAB_Surface surface, RAB_LightSample lightSample, flo
 
 RayDesc setupVisibilityRay(RAB_Surface surface, float3 samplePosition, float offset = 0.001)
 {
-    float3 L = samplePosition - surface.sd.posW;
+    float3 L = samplePosition - surface.GetPosW();
 
-    const bool isViewFrontFace = dot(surface.sd.V, surface.sd.faceN) > 0;
-    const bool isLightFrontFace = dot(L, surface.sd.faceN) > 0;
+    const bool isViewFrontFace = dot(surface.GetView(), surface.GetFaceN()) > 0;
+    const bool isLightFrontFace = dot(L, surface.GetFaceN()) > 0;
 
-    float3 origin = surface.sd.computeNewRayOrigin(isViewFrontFace == isLightFrontFace);
+    float3 origin = surface.ComputeNewRayOrigin(isViewFrontFace == isLightFrontFace);
 
     L = samplePosition - origin;
     float dist = length(L);
@@ -805,16 +750,16 @@ bool RAB_AreMaterialsSimilar(RAB_Surface a, RAB_Surface b)
     const float reflectivityThreshold = 0.25;
     const float albedoThreshold = 0.25;
 
-    if (a.planeHash != b.planeHash)
+    if (a.GetPlaneHash() != b.GetPlaneHash())
         return false;
 
-    if (!RTXDI_CompareRelativeDifference(a.bsdf.data.roughness, b.bsdf.data.roughness, roughnessThreshold))
+    if (!RTXDI_CompareRelativeDifference(a.GetRoughness(), b.GetRoughness(), roughnessThreshold))
         return false;
 
-    if (abs(calcLuminance(a.bsdf.data.specular) - calcLuminance(b.bsdf.data.specular)) > reflectivityThreshold)
+    if (abs(calcLuminance(a.GetSpecular()) - calcLuminance(b.GetSpecular())) > reflectivityThreshold)
         return false;
 
-    if (abs(calcLuminance(a.bsdf.data.diffuse) - calcLuminance(b.bsdf.data.diffuse)) > albedoThreshold)
+    if (abs(calcLuminance(a.GetDiffuse()) - calcLuminance(b.GetDiffuse())) > albedoThreshold)
         return false;
 
     return true;
@@ -837,10 +782,10 @@ float3 convertMotionVectorToPixelSpace(
     int2 pixelPosition,
     float3 motionVector)
 {
-    float2 curerntPixelCenter = float2(pixelPosition.xy) + 0.5;
-    float2 previousPosition = curerntPixelCenter + motionVector.xy;
+    float2 currentPixelCenter = float2(pixelPosition.xy) + 0.5;
+    float2 previousPosition = currentPixelCenter + motionVector.xy;
     previousPosition *= viewPrev.viewportSize * view.viewportSizeInv;
-    motionVector.xy = previousPosition - curerntPixelCenter;
+    motionVector.xy = previousPosition - currentPixelCenter;
     return motionVector;
 }
 
@@ -881,11 +826,11 @@ bool RAB_ValidateGISampleWithJacobian(inout float jacobian)
 
 float RAB_GetGISampleTargetPdfForSurface(float3 samplePosition, float3 sampleRadiance, RAB_Surface surface)
 {
-    float3 L = normalize(samplePosition - surface.sd.posW);
+    float3 L = normalize(samplePosition - surface.GetPosW());
 
     SampleGenerator sg = (SampleGenerator)0; // Needed for bsdf.eval but not really used there
 
-    float3 reflectedRadiance = surface.bsdf.eval(surface.sd, L, sg) * sampleRadiance;
+    float3 reflectedRadiance = surface.Eval(L, sg) * sampleRadiance;
     return max(0, luminance(reflectedRadiance));
 }
 

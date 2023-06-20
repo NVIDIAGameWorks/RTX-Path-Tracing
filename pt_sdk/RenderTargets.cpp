@@ -22,6 +22,9 @@ using namespace donut::math;
 
 #include "PathTracer/StablePlanes.hlsli"
 
+#include "RTXDI/ShaderParameters.h"
+#include <donut/core/log.h>
+
 using namespace dm;
 using namespace donut;
 using namespace donut::math;
@@ -50,32 +53,13 @@ void RenderTargets::Init(
     desc.isRenderTarget = true;
     desc.useClearValue = true;
     desc.clearValue = nvrhi::Color(0.f);
-    desc.sampleCount = m_SampleCount;
-    desc.dimension = m_SampleCount > 1 ? nvrhi::TextureDimension::Texture2DMS : nvrhi::TextureDimension::Texture2D;
+    desc.sampleCount = 1; assert(m_SampleCount == 1);
+    desc.dimension =  nvrhi::TextureDimension::Texture2D;
     desc.keepInitialState = true;
     desc.isTypeless = false;
     desc.isUAV = false;
     desc.mipLevels = 1;
 
-#if 0 // classic hardware depth buffer
-    const nvrhi::Format depthFormats[] = {
-        nvrhi::Format::D24S8,
-        nvrhi::Format::D32S8,
-        nvrhi::Format::D32,
-        nvrhi::Format::D16 };
-    
-    const nvrhi::FormatSupport depthFeatures =
-        nvrhi::FormatSupport::Texture |
-        nvrhi::FormatSupport::DepthStencil |
-        nvrhi::FormatSupport::ShaderLoad;
-    
-    desc.format = nvrhi::utils::ChooseFormat(device, depthFeatures, depthFormats, std::size(depthFormats));
-    desc.isTypeless = true;
-    desc.initialState = nvrhi::ResourceStates::DepthWrite;
-    desc.clearValue = useReverseProjection ? nvrhi::Color(0.f) : nvrhi::Color(1.f);
-    desc.debugName = "GBufferDepth";
-    Depth = device->createTexture(desc);
-#else // same value but not actually used as hardware depth buffer, but exported from path tracer instead
     desc.format = nvrhi::Format::R32_FLOAT;
     desc.isTypeless = false;
     desc.isUAV = true;
@@ -85,7 +69,6 @@ void RenderTargets::Init(
     desc.clearValue = useReverseProjection ? nvrhi::Color(0.f) : nvrhi::Color(1.f);
     desc.useClearValue = true;
     Depth = device->createTexture(desc);
-#endif
 
     desc.isTypeless = false;
     desc.isRenderTarget = true;
@@ -99,14 +82,21 @@ void RenderTargets::Init(
     desc.debugName = "DenoiserMotionVectors";
     DenoiserMotionVectors = device->createTexture(desc);
 
+    desc.format = nvrhi::Format::R32_UINT;
+    desc.debugName = "Throughput";
+    Throughput = device->createTexture(desc);
+
     desc.format = nvrhi::Format::RGBA16_FLOAT;
     desc.debugName = "StableRadianceBuffer";
     StableRadiance = device->createTexture(desc);
-    desc.format = nvrhi::Format::RGBA32_UINT;
-    desc.debugName = "PingStablePlanesHeader";
+    
+    desc.format = nvrhi::Format::R32_UINT;
+    desc.arraySize = 4;
+    desc.dimension = nvrhi::TextureDimension::Texture2DArray;
+    desc.debugName = "StablePlanesHeader";
     StablePlanesHeader = device->createTexture(desc);
-    desc.debugName = "PongStablePlanesHeader";
-    PrevStablePlanesHeader = device->createTexture(desc);
+    desc.dimension = nvrhi::TextureDimension::Texture2D;
+    desc.arraySize = 1;
 
     desc.format = nvrhi::Format::RGBA16_FLOAT;
     desc.debugName = "DenoiserDiffRadianceHitDist";
@@ -121,14 +111,6 @@ void RenderTargets::Init(
     for (int i = 0; i < cStablePlaneCount; ++i)
         DenoiserOutSpecRadianceHitDist[i] = device->createTexture(desc);
 
-    //desc.debugName = "DenoiserPackedBSDFEstimate";
-    //desc.format = nvrhi::Format::RGBA32_UINT;
-    //DenoiserPackedBSDFEstimate = device->createTexture(desc);
-    desc.format = nvrhi::Format::RGBA32_FLOAT;
-    desc.debugName = "RtxdiOutDirectionValid";
-    RtxdiOutDirectionValidSample = device->createTexture(desc);
-    desc.debugName = "RtxdiOutLiDistance";
-    RtxdiOutLiDist = device->createTexture(desc);
     desc.debugName = "DebugVizOutput";
     desc.format = nvrhi::Format::RGBA16_FLOAT;
     desc.clearValue = nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f);   // avoid the debug layer warnings... not actually cleared except for debug purposes
@@ -262,22 +244,21 @@ void RenderTargets::Init(
         bufferDesc.initialState = nvrhi::ResourceStates::Common;
 
         bufferDesc.structStride = sizeof(StablePlane);
-        bufferDesc.byteSize = sizeof(StablePlane) * StablePlanesComputeStorageElementCount(m_RenderSize.x, m_RenderSize.y);
-        bufferDesc.debugName = "PingStablePlanesBuffer";
+        bufferDesc.byteSize = sizeof(StablePlane) * GenericTSComputeStorageElementCount(m_RenderSize.x, m_RenderSize.y, cStablePlaneCount);
+        bufferDesc.debugName = "StablePlanesBuffer";
         StablePlanesBuffer = device->createBuffer(bufferDesc);
-        bufferDesc.debugName = "PongStablePlanesBuffer";
-        PrevStablePlanesBuffer = device->createBuffer(bufferDesc);
+    }
 
-#if 0 // useful test for custom addressing
-        for (int i = 0; i < 100; i++)
-        {
-            uint2 randsiz = {(uint)(std::rand()%2000), (uint)(std::rand()%2000)};
-            uint3 randp = {(uint)std::rand()%randsiz.x, (uint)std::rand()%randsiz.y, (uint)std::rand()%3};
-            uint addr = StablePlanesPixelToAddress(randp.xy(), randp.z, randsiz.x, randsiz.y );
-            uint3 randpt = StablePlanesAddressToPixel(addr, randsiz.x, randsiz.y);
-            assert( randp.x == randpt.x && randp.y == randpt.y && randp.z == randpt.z );
-        }
-#endif
+    {
+        nvrhi::BufferDesc surfaceBufferDesc;
+        surfaceBufferDesc.byteSize = sizeof(PackedPathTracerSurfaceData) * 2 * renderSize.x * renderSize.y; // *2 is for history!
+        surfaceBufferDesc.byteSize = sizeof(PackedPathTracerSurfaceData) * GenericTSComputeStorageElementCount(m_RenderSize.x, m_RenderSize.y, 2); // *2 is for history!
+        surfaceBufferDesc.structStride = sizeof(PackedPathTracerSurfaceData);
+        surfaceBufferDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+        surfaceBufferDesc.keepInitialState = true;
+        surfaceBufferDesc.debugName = "SurfaceData(GBuffer)";
+        surfaceBufferDesc.canHaveUAVs = true;
+        SurfaceDataBuffer = device->createBuffer(surfaceBufferDesc);
     }
 }
 

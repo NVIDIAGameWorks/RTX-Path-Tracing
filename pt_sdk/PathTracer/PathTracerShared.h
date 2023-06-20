@@ -41,35 +41,40 @@ struct PathTracerCameraData
 // path tracer main constants
 struct PathTracerConstants
 {
-    int     bounceCount;
-    int     enablePerPixelJitterAA;         // this is for future blue noise and/or similar experimentation; at the moment we use constant (per frame) jitter which is set to camera
     uint    imageWidth;
     uint    imageHeight;
-
-    float   texLODBias;
     uint    sampleIndex;
+    int     enablePerPixelJitterAA;         // this is for future blue noise and/or similar experimentation; at the moment we use constant (per frame) jitter which is set to camera
+
+    uint    bounceCount;
+    uint    diffuseBounceCount;
+    uint    enableRussianRoulette;
+    float   texLODBias;
+
     uint    hasEnvMap;
-    float   preExposedGrayLuminance;
-
     float   fireflyFilterThreshold;
-    uint    useReSTIR;
+    float   preExposedGrayLuminance;
     uint    denoisingEnabled;
-    uint    useReSTIRGI;
 
+    uint    frameIndex;
+    uint    useReSTIRDI;
+    uint    useReSTIRGI;
     uint    suppressPrimaryNEE;
-    uint    activeStablePlaneCount;
-    uint    maxStablePlaneVertexDepth;
-    uint    allowPrimarySurfaceReplacement;
 
     float   stablePlanesSplitStopThreshold;
     float   stablePlanesMinRoughness;
     uint    enableShaderExecutionReordering;
     float   stablePlanesSuppressPrimaryIndirectSpecularK;
 
+    float   denoiserRadianceClampK;
+    uint    padding1;
     float   stablePlanesAntiAliasingFallthrough;
-    float   padding0;
-    float   padding1;
-    float   padding2;
+    uint    activeStablePlaneCount;
+
+    uint    maxStablePlaneVertexDepth;
+    uint    allowPrimarySurfaceReplacement;
+    uint    genericTSLineStride;  // used for u_SurfaceData
+    uint    genericTSPlaneStride; // used for u_SurfaceData
 
     PathTracerCameraData camera;
     PathTracerCameraData prevCamera;

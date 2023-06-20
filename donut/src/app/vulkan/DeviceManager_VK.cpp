@@ -407,7 +407,7 @@ bool DeviceManager_VK::createInstance()
     auto layerVec = stringSetToVector(enabledExtensions.layers);
 
     auto applicationInfo = vk::ApplicationInfo()
-        .setApiVersion(VK_MAKE_VERSION(1, 2, 0));
+        .setApiVersion(VK_MAKE_VERSION(1, 3, 0));
 
     // create the vulkan instance
     vk::InstanceCreateInfo info = vk::InstanceCreateInfo()

@@ -91,8 +91,8 @@ void main(uint dispatchThreadId : SV_DispatchThreadID, uint groupThreadId : SV_G
 
     if (!isPrimitiveLight)
     {
-        InstanceData instance = t_InstanceData[task.instanceAndGeometryIndex >> 12];
-        GeometryData geometry = t_GeometryData[instance.firstGeometryIndex + task.instanceAndGeometryIndex & 0xfff];
+        InstanceData instance = t_InstanceData[(task.instanceAndGeometryIndex >> 12) & 0x7FFFF];
+        GeometryData geometry = t_GeometryData[instance.firstGeometryIndex + (task.instanceAndGeometryIndex & 0xfff)];
         MaterialConstants material = t_MaterialConstants[geometry.materialIndex];
 
         ByteAddressBuffer indexBuffer = t_BindlessBuffers[NonUniformResourceIndex(geometry.indexBufferIndex)];
@@ -112,9 +112,9 @@ void main(uint dispatchThreadId : SV_DispatchThreadID, uint groupThreadId : SV_G
 
         float3 radiance = material.emissiveColor;
 
-        if (material.emissiveTextureIndex >= 0 && geometry.texCoord1Offset != ~0u && (material.flags & MaterialFlags_UseEmissiveTexture) != 0)
+        if ((material.emissiveTextureIndex != 0xFFFFFFFF) && (geometry.texCoord1Offset != ~0u) && ((material.flags & MaterialFlags_UseEmissiveTexture) != 0))
         {
-            Texture2D emissiveTexture = t_BindlessTextures[NonUniformResourceIndex(material.emissiveTextureIndex)];
+            Texture2D emissiveTexture = t_BindlessTextures[NonUniformResourceIndex(material.emissiveTextureIndex & 0xFFFF)];
 
             // Load the vertex UVs
             float2 uvs[3];

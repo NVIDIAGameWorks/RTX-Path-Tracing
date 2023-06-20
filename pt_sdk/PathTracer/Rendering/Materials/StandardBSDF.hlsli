@@ -112,9 +112,9 @@ struct StandardBSDF // : IBSDF
         // Compute approximation of the albedos.
         // For now use the blend weights and colors, but this should be improved to better numerically approximate the integrals.
         p.diffuseReflectionAlbedo = (1.f - data.diffuseTransmission) * (1.f - data.specularTransmission) * data.diffuse;
-        p.diffuseTransmissionAlbedo = data.diffuseTransmission * (1.f - data.specularTransmission) * data.transmission;
+        p.diffuseTransmissionAlbedo = data.diffuseTransmission * data.transmission* (1.f - data.specularTransmission); // used to have  "* (1.f - data.specularTransmission)" too
         p.specularReflectionAlbedo = (1.f - data.specularTransmission) * data.specular;
-        p.specularTransmissionAlbedo = data.specularTransmission * data.specular;
+        p.specularTransmissionAlbedo = data.specularTransmission * data.transmission;
 
         // Pass on our specular reflectance field unmodified.
         p.specularReflectance = data.specular;

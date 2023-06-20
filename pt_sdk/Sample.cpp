@@ -36,11 +36,11 @@ using namespace donut::render;
 
 #include <thread>
 
-static const int c_SwapchainCount = 2;
+static const int c_SwapchainCount = 3;
 
-static const char* g_WindowTitle = "Path Tracing SDK v1.0.0";
+static const char* g_WindowTitle = "Path Tracing SDK v1.1.0";
 
-// Temp helper used to reduce FPS to specified target (i.e.) 30 - useful to avoid overheating the office :)
+// Temp helper used to reduce FPS to specified target (i.e.) 30 - useful to avoid overheating the office :) but not intended for precise fps control
 class FPSLimiter
 {
 private:
@@ -94,6 +94,8 @@ std::filesystem::path GetLocalPath(std::string subfolder)
 Sample::Sample( donut::app::DeviceManager * deviceManager, SampleUIData & ui ) 
     : app::ApplicationBase( deviceManager ), m_ui( ui )
 {
+    deviceManager->SetFrameTimeUpdateInterval(1.0f);
+
     std::filesystem::path frameworkShaderPath = app::GetDirectoryWithExecutable( ) / "shaders/framework" / app::GetShaderTypeName( GetDevice( )->getGraphicsAPI( ) );
     std::filesystem::path appShaderPath = app::GetDirectoryWithExecutable() / "shaders/pt_sdk" / app::GetShaderTypeName(GetDevice()->getGraphicsAPI());
     std::filesystem::path nrdShaderPath = app::GetDirectoryWithExecutable() / "shaders/nrd" / app::GetShaderTypeName(GetDevice()->getGraphicsAPI());
@@ -115,13 +117,12 @@ Sample::Sample( donut::app::DeviceManager * deviceManager, SampleUIData & ui )
     m_Camera.SetRotateSpeed(.003f);
 
 #ifdef STREAMLINE_INTEGRATION
-    m_SLWrapper = std::make_unique<SLWrapper>(GetDevice());
-    m_ui.DLSS_Supported = m_SLWrapper->GetDLSSAvailable();
-    m_ui.REFLEX_Supported = m_SLWrapper->GetReflexAvailable();
-    m_ui.DLSSG_Supported = m_SLWrapper->GetDLSSGAvailable();
+    m_ui.DLSS_Supported =  SLWrapper::Get().GetDLSSAvailable();
+    m_ui.REFLEX_Supported =  SLWrapper::Get().GetReflexAvailable();
+    m_ui.DLSSG_Supported =  SLWrapper::Get().GetDLSSGAvailable();
 
     // Set the callbacks for Reflex
-    deviceManager->m_callbacks.beforeFrame = SLWrapper::ReflexCallback_Sleep_Input_SimStart;
+    deviceManager->m_callbacks.beforeFrame = SLWrapper::Callback_FrameCount_Reflex_Sleep_Input_SimStart;
     deviceManager->m_callbacks.afterAnimate = SLWrapper::ReflexCallback_SimEnd;
     deviceManager->m_callbacks.beforeRender = SLWrapper::ReflexCallback_RenderStart;
     deviceManager->m_callbacks.afterRender = SLWrapper::ReflexCallback_RenderEnd;
@@ -168,10 +169,9 @@ bool Sample::Init(const std::string& preferredScene)
         nvrhi::BindingLayoutItem::Sampler(1),
         nvrhi::BindingLayoutItem::Sampler(2),
         nvrhi::BindingLayoutItem::Texture_UAV(0),
-        nvrhi::BindingLayoutItem::Texture_UAV(2), // u_RtxdiOutDirectionValid
-        nvrhi::BindingLayoutItem::Texture_UAV(3), // u_RtxdiLiDistance
-        nvrhi::BindingLayoutItem::Texture_UAV(5),
-        nvrhi::BindingLayoutItem::Texture_UAV(6),
+        nvrhi::BindingLayoutItem::Texture_UAV(4),           // u_Throughput
+        nvrhi::BindingLayoutItem::Texture_UAV(5),           // u_MotionVectors
+        nvrhi::BindingLayoutItem::Texture_UAV(6),           // u_Depth        
         // denoising slots go from 30-39
         //nvrhi::BindingLayoutItem::StructuredBuffer_UAV(30), // denoiser 'control buffer' (might be removed, might be reused)
         nvrhi::BindingLayoutItem::Texture_UAV(31),          // RWTexture2D<float>  u_DenoiserViewspaceZ         
@@ -201,10 +201,9 @@ bool Sample::Init(const std::string& preferredScene)
 
     // stable planes buffers -- must be last because these items are appended to the BindingSetDesc after the main list
     globalBindingLayoutDesc.bindings.push_back(nvrhi::BindingLayoutItem::Texture_UAV(40));
-    globalBindingLayoutDesc.bindings.push_back(nvrhi::BindingLayoutItem::Texture_UAV(41));
     globalBindingLayoutDesc.bindings.push_back(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(42));
-    globalBindingLayoutDesc.bindings.push_back(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(43));
     globalBindingLayoutDesc.bindings.push_back(nvrhi::BindingLayoutItem::Texture_UAV(44));
+    globalBindingLayoutDesc.bindings.push_back(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(45));
 
     m_BindingLayout = GetDevice()->createBindingLayout(globalBindingLayoutDesc);
 
@@ -391,8 +390,7 @@ void Sample::SceneUnloading( )
 {
     m_ui.TogglableNodes = nullptr;
     ApplicationBase::SceneUnloading();
-    m_PingBindingSet = nullptr;
-    m_PongBindingSet = nullptr;
+    m_BindingSet = nullptr;
     m_TopLevelAS = nullptr;
     m_SubInstanceBuffer = nullptr;
     m_BindingCache->Clear( );
@@ -607,6 +605,10 @@ void Sample::SceneLoaded( )
             m_ui.RealtimeFireflyFilterThreshold = settings->realtimeFireflyFilter.value();
             m_ui.RealtimeFireflyFilterEnabled = true;
         }
+        m_ui.BounceCount = settings->maxBounces.value_or(m_ui.BounceCount);
+        m_ui.RealtimeDiffuseBounceCount = settings->realtimeMaxDiffuseBounces.value_or(m_ui.RealtimeDiffuseBounceCount);
+        m_ui.ReferenceDiffuseBounceCount = settings->referenceMaxDiffuseBounces.value_or(m_ui.ReferenceDiffuseBounceCount);
+        m_ui.TexLODBias = settings->textureMIPBias.value_or(m_ui.TexLODBias);
     }
 }
 
@@ -628,7 +630,7 @@ bool Sample::KeyboardUpdate(int key, int scancode, int action, int mods)
     if (key == GLFW_KEY_F13 && action == GLFW_PRESS) {
         // As GLFW abstracts away from Windows messages
         // We instead set the F13 as the PC_Ping key in the constants and compare against that.
-        m_SLWrapper->ReflexTriggerPcPing(GetFrameIndex());
+         SLWrapper::Get().ReflexTriggerPcPing(GetFrameIndex());
     }
 #endif
         
@@ -653,6 +655,7 @@ bool Sample::MousePosUpdate(double xpos, double ypos)
     }
     
     m_PickPosition = uint2( static_cast<uint>( xpos * upscalingScale.x ), static_cast<uint>( ypos * upscalingScale.y ) );
+    m_ui.MousePos = uint2( static_cast<uint>( xpos * upscalingScale.x ), static_cast<uint>( ypos * upscalingScale.y ) );
 
     return true;
 }
@@ -669,7 +672,7 @@ bool Sample::MouseButtonUpdate(int button, int action, int mods)
 
 #ifdef STREAMLINE_INTEGRATION
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-        m_SLWrapper->ReflexTriggerFlash(GetFrameIndex());
+         SLWrapper::Get().ReflexTriggerFlash(GetFrameIndex());
     }
 #endif
 
@@ -722,7 +725,7 @@ void Sample::Animate(float fElapsedTimeSeconds)
                     anim->Apply((float)m_SceneTime);
             }
         }
-        else // loop each anim individually
+        else // loop each animation individually
         {
             for (const auto& anim : m_Scene->GetSceneGraph()->GetAnimations())
                 anim->Apply((float)fmod(m_SceneTime, anim->GetDuration()));
@@ -817,7 +820,7 @@ void Sample::SaveCurrentCamera()
         file << worldUp.x  << " " << worldUp.y  << " " << worldUp.z  << " " << std::endl;
 
         file << std::endl;
-        file << "below is the camera node that can be inluded into the *.scene.json;" << std::endl;
+        file << "below is the camera node that can be included into the *.scene.json;" << std::endl;
         file << "'Cameras' node goes into 'Graph' array" << std::endl;
         file << std::endl;
         file << "{"                                                             << std::endl;
@@ -932,30 +935,29 @@ bool Sample::CreatePTPipeline(engine::ShaderFactory& shaderFactory)
         uniqueHitGroups[perSubInstanceHitGroup[i].ExportName] = perSubInstanceHitGroup[i];
 
     // We use separate variants for
-    //  - STABLE_PLANES_MODE : because it modifies path payload and has different code coverage; switching dynamically significantly reduces shader compiler's ability to optimize
+    //  - PATH_TRACER_MODE : because it modifies path payload and has different code coverage; switching dynamically significantly reduces shader compiler's ability to optimize
     //  - USE_HIT_OBJECT_EXTENSION : because it requires use of extended API
     for( int variant = 0; variant < c_PathTracerVariants; variant++ )
     {
         std::vector<engine::ShaderMacro> defines;
         // must match shaders.cfg - USE_HIT_OBJECT_EXTENSION path will possibly go away once part of API (it can be dynamic)
-        if (variant == 0) { defines.push_back({ "STABLE_PLANES_MODE", "STABLE_PLANES_DISABLED" });      defines.push_back({ "USE_HIT_OBJECT_EXTENSION", "0" }); }
-        if (variant == 1) { defines.push_back({ "STABLE_PLANES_MODE", "STABLE_PLANES_BUILD_PASS" });    defines.push_back({ "USE_HIT_OBJECT_EXTENSION", "0" }); }
-        if (variant == 2) { defines.push_back({ "STABLE_PLANES_MODE", "STABLE_PLANES_NOISY_PASS" });    defines.push_back({ "USE_HIT_OBJECT_EXTENSION", "0" }); }
-        if (variant == 3) { defines.push_back({ "STABLE_PLANES_MODE", "STABLE_PLANES_DISABLED" });      defines.push_back({ "USE_HIT_OBJECT_EXTENSION", "1" }); }
-        if (variant == 4) { defines.push_back({ "STABLE_PLANES_MODE", "STABLE_PLANES_BUILD_PASS" });    defines.push_back({ "USE_HIT_OBJECT_EXTENSION", "1" }); }
-        if (variant == 5) { defines.push_back({ "STABLE_PLANES_MODE", "STABLE_PLANES_NOISY_PASS" });    defines.push_back({ "USE_HIT_OBJECT_EXTENSION", "1" }); }
+        if (variant == 0) { defines.push_back({ "PATH_TRACER_MODE", "PATH_TRACER_MODE_REFERENCE" });      defines.push_back({ "USE_HIT_OBJECT_EXTENSION", "0" }); }
+        if (variant == 1) { defines.push_back({ "PATH_TRACER_MODE", "PATH_TRACER_MODE_BUILD_STABLE_PLANES" });    defines.push_back({ "USE_HIT_OBJECT_EXTENSION", "0" }); }
+        if (variant == 2) { defines.push_back({ "PATH_TRACER_MODE", "PATH_TRACER_MODE_FILL_STABLE_PLANES" });    defines.push_back({ "USE_HIT_OBJECT_EXTENSION", "0" }); }
+        if (variant == 3) { defines.push_back({ "PATH_TRACER_MODE", "PATH_TRACER_MODE_REFERENCE" });      defines.push_back({ "USE_HIT_OBJECT_EXTENSION", "1" }); }
+        if (variant == 4) { defines.push_back({ "PATH_TRACER_MODE", "PATH_TRACER_MODE_BUILD_STABLE_PLANES" });    defines.push_back({ "USE_HIT_OBJECT_EXTENSION", "1" }); }
+        if (variant == 5) { defines.push_back({ "PATH_TRACER_MODE", "PATH_TRACER_MODE_FILL_STABLE_PLANES" });    defines.push_back({ "USE_HIT_OBJECT_EXTENSION", "1" }); }
         m_PTShaderLibrary[variant] = shaderFactory.CreateShaderLibrary("app/Sample.hlsl", &defines);
 
         if (!m_PTShaderLibrary)
             return false;
 
-        bool exportMissAndAnyHit = variant < 3; // non-USE_HIT_OBJECT_EXTENSION codepaths require miss and hit; USE_HIT_OBJECT_EXTENSION codepaths can handle miss & anyhit inline!
+        const bool exportAnyHit = variant < 3; // non-USE_HIT_OBJECT_EXTENSION codepaths require miss and hit; USE_HIT_OBJECT_EXTENSION codepaths can handle miss & anyhit inline!
 
         nvrhi::rt::PipelineDesc pipelineDesc;
         pipelineDesc.globalBindingLayouts = { m_BindingLayout, m_BindlessLayout };
         pipelineDesc.shaders.push_back({ "", m_PTShaderLibrary[variant]->getShader("RayGen", nvrhi::ShaderType::RayGeneration), nullptr });
-        if (exportMissAndAnyHit)
-            pipelineDesc.shaders.push_back({ "", m_PTShaderLibrary[variant]->getShader("Miss", nvrhi::ShaderType::Miss), nullptr });
+        pipelineDesc.shaders.push_back({ "", m_PTShaderLibrary[variant]->getShader("Miss", nvrhi::ShaderType::Miss), nullptr });
 
         for (auto& [_, hitGroupInfo]: uniqueHitGroups)
         {
@@ -963,7 +965,7 @@ bool Sample::CreatePTPipeline(engine::ShaderFactory& shaderFactory)
                 {
                     .exportName = hitGroupInfo.ExportName,
                     .closestHitShader = m_PTShaderLibrary[variant]->getShader(hitGroupInfo.ClosestHitShader.c_str(), nvrhi::ShaderType::ClosestHit),
-                    .anyHitShader = (exportMissAndAnyHit && hitGroupInfo.AnyHitShader!="")?(m_PTShaderLibrary[variant]->getShader(hitGroupInfo.AnyHitShader.c_str(), nvrhi::ShaderType::AnyHit)):(nullptr),
+                    .anyHitShader = (exportAnyHit && hitGroupInfo.AnyHitShader!="")?(m_PTShaderLibrary[variant]->getShader(hitGroupInfo.AnyHitShader.c_str(), nvrhi::ShaderType::AnyHit)):(nullptr),
                     .intersectionShader = nullptr,
                     .bindingLayout = nullptr,
                     .isProceduralPrimitive = false
@@ -991,9 +993,7 @@ bool Sample::CreatePTPipeline(engine::ShaderFactory& shaderFactory)
         for (int i = 0; i < perSubInstanceHitGroup.size(); i++)
             m_PTShaderTable[variant]->addHitGroup(perSubInstanceHitGroup[i].ExportName.c_str());
 
-        if (exportMissAndAnyHit)
-            m_PTShaderTable[variant]->addMissShader("Miss");
-        //m_PTShaderTable[variant]->addMissShader("MissVisibility"); // unused by default - see traceVisibilityRay
+        m_PTShaderTable[variant]->addMissShader("Miss");
     }
 
     {
@@ -1005,17 +1005,6 @@ bool Sample::CreatePTPipeline(engine::ShaderFactory& shaderFactory)
 		pipelineDesc.CS = m_ExportVBufferCS;
         m_ExportVBufferPSO = GetDevice()->createComputePipeline(pipelineDesc);
     }
-
-    {
-        std::vector<donut::engine::ShaderMacro> shaderMacros = {donut::engine::ShaderMacro({ "STABLE_PLANES_MODE", "STABLE_PLANES_NOISY_PASS" })};
-        m_ReSTIRApplyCS = m_ShaderFactory->CreateShader("app/Sample.hlsl", "ApplyReSTIR", &shaderMacros, nvrhi::ShaderType::Compute);
-
-        nvrhi::ComputePipelineDesc pipelineDesc;
-        pipelineDesc.bindingLayouts = { m_BindingLayout, m_BindlessLayout };
-        pipelineDesc.CS = m_ReSTIRApplyCS;
-        m_ReSTIRApplyPSO = GetDevice()->createComputePipeline(pipelineDesc);
-    }
-
 
     return true;
 }
@@ -1250,8 +1239,7 @@ void Sample::UpdateAccelStructs(nvrhi::ICommandList* commandList)
 
         GetDevice()->waitForIdle();
 
-        m_PingBindingSet = nullptr;
-        m_PongBindingSet = nullptr;
+        m_BindingSet = nullptr;
         m_TopLevelAS = nullptr;
 
         for (const std::shared_ptr<MeshInfo>& mesh : m_Scene->GetSceneGraph()->GetMeshes())
@@ -1319,7 +1307,7 @@ void Sample::BuildTLAS(nvrhi::ICommandList* commandList, uint32_t frameIndex) co
     {
         if (skinnedInstance->GetLastUpdateFrameIndex() < frameIndex)
             continue;
-            
+
         bvh::Config cfg = { .excludeTransmissive = m_ui.AS.ExcludeTransmissive };
 
         nvrhi::rt::AccelStructDesc blasDesc = bvh::GetMeshBlasDesc(cfg , *skinnedInstance->GetMesh(), nullptr);
@@ -1407,8 +1395,8 @@ void Sample::CreateRenderPasses( bool& exposureResetRequired )
     {
         if (m_NRD[i] == nullptr)
         {
-            nrd::Method denoiserMethod = m_ui.NRDMethod == NrdConfig::DenoiserMethod::REBLUR ?
-                nrd::Method::REBLUR_DIFFUSE_SPECULAR : nrd::Method::RELAX_DIFFUSE_SPECULAR;
+            nrd::Denoiser denoiserMethod = m_ui.NRDMethod == NrdConfig::DenoiserMethod::REBLUR ?
+                nrd::Denoiser::REBLUR_DIFFUSE_SPECULAR : nrd::Denoiser::RELAX_DIFFUSE_SPECULAR;
 
             m_NRD[i] = std::make_unique<NrdIntegration>(GetDevice(), denoiserMethod);
             m_NRD[i]->Initialize(m_RenderSize.x, m_RenderSize.y, *m_ShaderFactory);
@@ -1457,7 +1445,7 @@ void Sample::PreUpdatePathTracing( bool resetAccum, nvrhi::CommandListHandle com
 
     m_ui.AccumulationIndex = m_AccumulationSampleIndex;
 
-    // profile perf - only makes sense with high accum sample counts; only start counting after n-th after it stabilizes
+    // profile perf - only makes sense with high accumulation sample counts; only start counting after n-th after it stabilizes
     if( m_AccumulationSampleIndex < 16 )
     {
         m_BenchStart = std::chrono::high_resolution_clock::now( );
@@ -1489,6 +1477,7 @@ void Sample::PostUpdatePathTracing( )
 void Sample::UpdatePathTracerConstants( PathTracerConstants & constants )
 {
     constants.bounceCount = m_ui.BounceCount;
+    constants.diffuseBounceCount = (m_ui.RealtimeMode)?(m_ui.RealtimeDiffuseBounceCount):(m_ui.ReferenceDiffuseBounceCount);
     constants.enablePerPixelJitterAA = m_ui.RealtimeMode == false && m_ui.AccumulationAA;
     constants.texLODBias = m_ui.TexLODBias;
     constants.sampleIndex = m_sampleIndex;
@@ -1505,8 +1494,9 @@ void Sample::UpdatePathTracerConstants( PathTracerConstants & constants )
         constants.fireflyFilterThreshold = (m_ui.RealtimeFireflyFilterEnabled)?(m_ui.RealtimeFireflyFilterThreshold*std::sqrtf(constants.preExposedGrayLuminance)*1e3f):(0.0f); // it does make sense to make the realtime variant dependent on avg luminance - just didn't have time to try it out yet
     else
         constants.fireflyFilterThreshold = (m_ui.ReferenceFireflyFilterEnabled)?(m_ui.ReferenceFireflyFilterThreshold*std::sqrtf(constants.preExposedGrayLuminance)*1e3f):(0.0f); // making it exposure-adaptive breaks determinism with accumulation (because there's a feedback loop), so that's disabled
-    constants.useReSTIR = m_ui.ActualUseReSTIR();
+    constants.useReSTIRDI = m_ui.ActualUseReSTIRDI();
     constants.useReSTIRGI = m_ui.ActualUseReSTIRGI();
+    constants.denoiserRadianceClampK = m_ui.DenoiserRadianceClampK;
 
     // TODO: pull all this to BridgeCamera - sizeX and sizeY are already inputs so we just need to pass projMatrix
     {
@@ -1534,29 +1524,29 @@ void Sample::UpdatePathTracerConstants( PathTracerConstants & constants )
     constants.enableShaderExecutionReordering   = m_ui.ShaderExecutionReordering?1:0;
     constants.stablePlanesSuppressPrimaryIndirectSpecularK  = m_ui.StablePlanesSuppressPrimaryIndirectSpecular?m_ui.StablePlanesSuppressPrimaryIndirectSpecularK:0.0f;
     constants.stablePlanesAntiAliasingFallthrough = m_ui.StablePlanesAntiAliasingFallthrough;
+    constants.padding1                          = 0;
+    constants.enableRussianRoulette             = (m_ui.EnableRussianRoulette)?(1):(0);
+    constants.frameIndex                        = GetFrameIndex();
+    constants.genericTSLineStride               = GenericTSComputeLineStride(constants.imageWidth, constants.imageHeight);
+    constants.genericTSPlaneStride              = GenericTSComputePlaneStride(constants.imageWidth, constants.imageHeight);
 }
 
 
 void Sample::RtxdiBeginFrame(nvrhi::IFramebuffer* framebuffer, PathTracerCameraData cameraData, bool needNewPasses, uint2 renderDims)
 {	
-	if (m_ui.ResetRTXDI || needNewPasses)
-	{
+	if (needNewPasses)
 		m_RtxdiPass->Reset();
-		m_ui.ResetRTXDI = false;
-	}
-
+	
     RtxdiBridgeParameters bridgeParameters;
 	bridgeParameters.frameParams.frameIndex = GetFrameIndex();
 	bridgeParameters.frameParams.enableLocalLightImportanceSampling = true;
 	bridgeParameters.frameDims = renderDims;
 	bridgeParameters.cameraPosition = m_Camera.GetPosition();
-	bridgeParameters.cameraVectors = { cameraData.cameraU, cameraData.cameraV, cameraData.cameraW };
-	bridgeParameters.sampleIndex = m_sampleIndex;
 	bridgeParameters.userSettings = m_ui.RTXDI;
 
 	bool envMapPresent = m_ui.EnvironmentMapParams.enabled && m_EnvironmentMap->GetEnvironmentMap();
 	m_RtxdiPass->BeginFrame(m_CommandList, *m_RenderTargets, envMapPresent ? m_EnvironmentMap : nullptr, 
-        m_Scene, bridgeParameters, m_BindingLayout, m_ui.ActualUseReSTIR());
+        m_Scene, bridgeParameters, m_BindingLayout, m_ui.ActualUseReSTIRDI());
  }
 
 void Sample::Render(nvrhi::IFramebuffer* framebuffer)
@@ -1579,28 +1569,42 @@ void Sample::Render(nvrhi::IFramebuffer* framebuffer)
 #ifdef STREAMLINE_INTEGRATION
     // DLSS-G Setup
 
-    auto dlssgConst = sl::DLSSGConstants{};
+    // If DLSS-G has been turned off, then we tell tell SL to clean it up expressly 
+    if (SLWrapper::Get().GetDLSSGLastEnable() && m_ui.DLSSG_mode == sl::DLSSGMode::eOff) {
+        SLWrapper::Get().CleanupDLSSG();
+    }
+
+    // This is where DLSS-G is toggled On and Off (using dlssgConst.mode) and where we set DLSS-G parameters.  
+    auto dlssgConst = sl::DLSSGOptions{};
     dlssgConst.mode = m_ui.DLSSG_mode;
 
-    m_SLWrapper->SetDLSSGConsts(dlssgConst, GetFrameIndex());
+    // This is where we query DLSS-G minimum swapchain size
+    if (SLWrapper::Get().GetDLSSGAvailable())
+    {
+        uint64_t estimatedVramUsage;
+        sl::DLSSGStatus status;
+        int fps_multiplier;
+        int minSize = 0;
+        if (SLWrapper::Get().QueryDLSSGState(estimatedVramUsage, fps_multiplier, status, minSize))
+            m_ui.DLSSG_multiplier = fps_multiplier;
 
-    uint64_t estimatedVramUsage;
-    m_SLWrapper->QueryDLSSGSettings(estimatedVramUsage, m_ui.DLSSG_fps);
-    
+        SLWrapper::Get().SetDLSSGOptions(dlssgConst);
+    }
+
        // Setup Reflex
-    auto reflexConst = sl::ReflexConstants{};
+    auto reflexConst = sl::ReflexOptions{};
     reflexConst.mode = (sl::ReflexMode)m_ui.REFLEX_Mode;
     reflexConst.useMarkersToOptimize = true;
     reflexConst.virtualKey = VK_F13;
     reflexConst.frameLimitUs = m_ui.REFLEX_CapedFPS == 0 ? 0 : int(1000000. / m_ui.REFLEX_CapedFPS);
-    m_SLWrapper->SetReflexConsts(reflexConst, GetFrameIndex());
+    SLWrapper::Get().SetReflexConsts(reflexConst);
 
     bool flashIndicatorDriverAvailable;
-    m_SLWrapper->QueryReflexStats(m_ui.REFLEX_LowLatencyAvailable, flashIndicatorDriverAvailable, m_ui.REFLEX_Stats);
-    m_SLWrapper->SetReflexFlashIndicator(flashIndicatorDriverAvailable);
+    SLWrapper::Get().QueryReflexStats(m_ui.REFLEX_LowLatencyAvailable, flashIndicatorDriverAvailable, m_ui.REFLEX_Stats);
+    SLWrapper::Get().SetReflexFlashIndicator(flashIndicatorDriverAvailable);
 
     //Make sure DLSS is available
-    if ((m_ui.RealtimeAA == 2 || m_ui.RealtimeAA == 3) && !m_SLWrapper->GetDLSSAvailable())
+    if ((m_ui.RealtimeAA == 2 || m_ui.RealtimeAA == 3) && !SLWrapper::Get().GetDLSSAvailable())
     {
         log::warning("DLSS antialiasing is not available. Switching to TAA. ");
         m_ui.RealtimeAA = 1;
@@ -1608,7 +1612,7 @@ void Sample::Render(nvrhi::IFramebuffer* framebuffer)
 
     // Reset DLSS vars if we stop using it
     bool changeToDLSSMode = (m_ui.RealtimeAA == 2 || m_ui.RealtimeAA == 3) && m_ui.DLSS_Last_RealtimeAA != m_ui.RealtimeAA;
-    if (changeToDLSSMode || m_ui.DLSS_Mode == sl::DLSSMode::eDLSSModeOff) {
+    if (changeToDLSSMode || m_ui.DLSS_Mode == sl::DLSSMode::eOff) {
         m_ui.DLSS_Last_Mode = SampleUIData::DLSS_ModeDefault;
         m_ui.DLSS_Mode = SampleUIData::DLSS_ModeDefault;
         m_ui.DLSS_Last_DisplaySize = { 0,0 };
@@ -1617,22 +1621,25 @@ void Sample::Render(nvrhi::IFramebuffer* framebuffer)
     m_ui.DLSS_Last_RealtimeAA = m_ui.RealtimeAA;
 
     // If we are using DLSS set its constants
-    if (((m_ui.RealtimeAA == 2 || m_ui.RealtimeAA == 3) && m_ui.DLSS_Mode != sl::eDLSSModeOff && m_ui.RealtimeMode))
+    if (((m_ui.RealtimeAA == 2 || m_ui.RealtimeAA == 3) && m_ui.DLSS_Mode != sl::DLSSMode::eOff && m_ui.RealtimeMode))
     {
-        sl::DLSSConstants dlssConstants = {};
-        dlssConstants.mode = m_ui.DLSS_Mode;
-        dlssConstants.outputWidth = m_DisplaySize.x;
-        dlssConstants.outputHeight = m_DisplaySize.y;
-        dlssConstants.colorBuffersHDR = sl::Boolean::eTrue;
-        dlssConstants.sharpness = m_RecommendedDLSSSettings.sharpness;
-        m_SLWrapper->SetDLSSConsts(dlssConstants, GetFrameIndex());
+        if (SLWrapper::Get().GetDLSSAvailable())
+        {
+            sl::DLSSOptions dlssConstants = {};
+            dlssConstants.mode = m_ui.DLSS_Mode;
+            dlssConstants.outputWidth = m_DisplaySize.x;
+            dlssConstants.outputHeight = m_DisplaySize.y;
+            dlssConstants.colorBuffersHDR = sl::Boolean::eTrue;
+            dlssConstants.sharpness = m_RecommendedDLSSSettings.sharpness;
+            SLWrapper::Get().SetDLSSOptions(dlssConstants);
+        }
 
         if(m_ui.RealtimeAA == 2) {
             // Check if we need to update the rendertarget size.
             bool DLSS_resizeRequired = (m_ui.DLSS_Mode != m_ui.DLSS_Last_Mode) || (m_DisplaySize.x != m_ui.DLSS_Last_DisplaySize.x) || (m_DisplaySize.y != m_ui.DLSS_Last_DisplaySize.y);
             if (DLSS_resizeRequired) {
                 // Only quality, target width and height matter here
-                m_SLWrapper->QueryDLSSOptimalSettings(m_RecommendedDLSSSettings);
+                SLWrapper::Get().QueryDLSSOptimalSettings(m_RecommendedDLSSSettings);
 
                 if (m_RecommendedDLSSSettings.optimalRenderSize.x <= 0 || m_RecommendedDLSSSettings.optimalRenderSize.y <= 0) {
                     m_ui.RealtimeAA = 0;
@@ -1644,21 +1651,23 @@ void Sample::Render(nvrhi::IFramebuffer* framebuffer)
                     m_ui.DLSS_Last_DisplaySize = m_DisplaySize;
                 }
             }
-            // Todo: Fix optimalRenderSize usage
-            // m_ui.DLSS_Mode == sl::eDLSSModeMaxQuality is now half the number of pixels (1920x1080<->1280x720) - we should find a way to make it a bit
-            // more since we still have a lot of aliasing; perhaps 1600x900 i.e. ~70%, then make Balanced 50%, and MaxPerformance ~25-33%?
+
             m_RenderSize = m_RecommendedDLSSSettings.optimalRenderSize;
         }
         if (m_ui.RealtimeAA == 3) {
-            m_ui.DLSS_Mode = sl::DLSSMode::eDLSSModeMaxQuality;
+            m_ui.DLSS_Mode = sl::DLSSMode::eDLAA;
             m_RenderSize = m_DisplaySize;
         }
     }
     else 
     {
-        sl::DLSSConstants dlssConstants = {};
-        dlssConstants.mode = sl::DLSSMode::eDLSSModeOff;
-        m_SLWrapper->SetDLSSConsts(dlssConstants, GetFrameIndex());
+        if (SLWrapper::Get().GetDLSSAvailable())
+        {
+            sl::DLSSOptions dlssConstants = {};
+            dlssConstants.mode = sl::DLSSMode::eOff;
+            SLWrapper::Get().SetDLSSOptions(dlssConstants);
+        }
+
         m_RenderSize = m_DisplaySize;
     }
 #else
@@ -1689,7 +1698,7 @@ void Sample::Render(nvrhi::IFramebuffer* framebuffer)
         needNewPasses = true;
     }
 
-	if( needNewPasses || m_PingBindingSet == nullptr || m_PongBindingSet == nullptr )
+	if( needNewPasses || m_BindingSet == nullptr )
     {
         // WARNING: this must match the layout of the m_BindingLayout (or switch to CreateBindingSetAndLayout)
         // Fixed resources that do not change between binding sets
@@ -1709,11 +1718,9 @@ void Sample::Render(nvrhi::IFramebuffer* framebuffer)
             nvrhi::BindingSetItem::Sampler(1, m_EnvironmentMap->GetEnvironmentSampler()),
             nvrhi::BindingSetItem::Sampler(2, m_EnvironmentMap->GetImportanceSampler()),
             nvrhi::BindingSetItem::Texture_UAV(0, m_RenderTargets->OutputColor),
-            nvrhi::BindingSetItem::Texture_UAV(2, m_RenderTargets->RtxdiOutDirectionValidSample),
-            nvrhi::BindingSetItem::Texture_UAV(3, m_RenderTargets->RtxdiOutLiDist),
+            nvrhi::BindingSetItem::Texture_UAV(4, m_RenderTargets->Throughput),
             nvrhi::BindingSetItem::Texture_UAV(5, m_RenderTargets->ScreenMotionVectors),
             nvrhi::BindingSetItem::Texture_UAV(6, m_RenderTargets->Depth),
-            //nvrhi::BindingSetItem::StructuredBuffer_UAV(30, m_RenderTargets->DenoiserPixelDataBuffer),
             nvrhi::BindingSetItem::Texture_UAV(31, m_RenderTargets->DenoiserViewspaceZ),              
             nvrhi::BindingSetItem::Texture_UAV(32, m_RenderTargets->DenoiserMotionVectors),      
             nvrhi::BindingSetItem::Texture_UAV(33, m_RenderTargets->DenoiserNormalRoughness),         
@@ -1737,29 +1744,18 @@ void Sample::Render(nvrhi::IFramebuffer* framebuffer)
                 nvrhi::BindingSetItem::TypedBuffer_UAV(NV_SHADER_EXTN_SLOT_NUM, nullptr));
         }
 
-        // create sets for temporal data (current / previous frame)
-		for (int currentFrame = 0; currentFrame <= 1; currentFrame++)
+        // Main raytracing & etc binding set
 		{
             nvrhi::BindingSetDesc bindingSetDesc;
             
             bindingSetDesc.bindings = bindingSetDescBase.bindings;
 
-            bindingSetDesc.bindings.push_back(nvrhi::BindingSetItem::Texture_UAV(40, (currentFrame)  ? m_RenderTargets->StablePlanesHeader : m_RenderTargets->PrevStablePlanesHeader));
-            bindingSetDesc.bindings.push_back(nvrhi::BindingSetItem::Texture_UAV(41, (!currentFrame) ? m_RenderTargets->StablePlanesHeader : m_RenderTargets->PrevStablePlanesHeader));
-            bindingSetDesc.bindings.push_back(nvrhi::BindingSetItem::StructuredBuffer_UAV(42, (currentFrame)  ? m_RenderTargets->StablePlanesBuffer : m_RenderTargets->PrevStablePlanesBuffer));
-            bindingSetDesc.bindings.push_back(nvrhi::BindingSetItem::StructuredBuffer_UAV(43, (!currentFrame) ? m_RenderTargets->StablePlanesBuffer : m_RenderTargets->PrevStablePlanesBuffer));
+            bindingSetDesc.bindings.push_back(nvrhi::BindingSetItem::Texture_UAV(40, m_RenderTargets->StablePlanesHeader));
+            bindingSetDesc.bindings.push_back(nvrhi::BindingSetItem::StructuredBuffer_UAV(42, m_RenderTargets->StablePlanesBuffer));
             bindingSetDesc.bindings.push_back(nvrhi::BindingSetItem::Texture_UAV(44, m_RenderTargets->StableRadiance));
+            bindingSetDesc.bindings.push_back(nvrhi::BindingSetItem::StructuredBuffer_UAV(45, m_RenderTargets->SurfaceDataBuffer));
                     
-            nvrhi::BindingSetHandle bindingset = GetDevice()->createBindingSet(bindingSetDesc, m_BindingLayout);
-
-            if (currentFrame)
-            {
-                m_PingBindingSet = bindingset;
-            }
-            else
-            {
-				m_PongBindingSet = bindingset;
-            }
+            m_BindingSet = GetDevice()->createBindingSet(bindingSetDesc, m_BindingLayout);
         }
 
         {
@@ -1864,20 +1860,6 @@ void Sample::Render(nvrhi::IFramebuffer* framebuffer)
             m_Lights[i]->FillLightConstants(constants.lights[i]);
 		}
 
-#if 0 // debugging code
-        const std::vector<std::shared_ptr<MeshInstance>>& meshInstances = m_Scene->GetSceneGraph()->GetMeshInstances();
-        uint fullyOpaque = 0;
-        for(int i = 0; i < (int)meshInstances.size(); i++)
-        {
-            MeshInstance & meshInstance = *(meshInstances[i]);
-            SceneContentFlags contentFlags = meshInstances[i]->GetContentFlags();
-            int dbg = 0;
-            if( ((uint32_t)contentFlags & (uint32_t)(SceneContentFlags::AlphaTestedMeshes)) == 0 )
-                fullyOpaque++;
-            //meshInstances[i]->GetInstanceIndex()
-            dbg++;
-        }
-#endif
         constants.debug = {};
         constants.debug.pick = m_Pick || m_ui.ContinuousDebugFeedback;
         constants.debug.pickX = (constants.debug.pick)?(m_ui.DebugPixel.x):(-1);
@@ -1885,7 +1867,7 @@ void Sample::Render(nvrhi::IFramebuffer* framebuffer)
         constants.debug.debugLineScale = m_ui.DebugLineScale;
         constants.debug.showWireframe = m_ui.ShowWireframe;
         constants.debug.debugViewType = (int)m_ui.DebugView;
-        constants.debug.debugViewStablePlaneIndex = m_ui.DebugViewStablePlaneIndex;
+        constants.debug.debugViewStablePlaneIndex = (m_ui.StablePlanesActiveCount==1)?(0):(m_ui.DebugViewStablePlaneIndex);
 #if ENABLE_DEBUG_DELTA_TREE_VIZUALISATION
         constants.debug.exploreDeltaTree = (m_ui.ShowDeltaTree && constants.debug.pick)?(1):(0);
 #else
@@ -1893,7 +1875,8 @@ void Sample::Render(nvrhi::IFramebuffer* framebuffer)
 #endif
         constants.debug.imageWidth = constants.ptConsts.imageWidth;
         constants.debug.imageHeight = constants.ptConsts.imageHeight;
-        constants.debug.padding0 = constants.debug.padding1 = 0;
+        constants.debug.mouseX = m_ui.MousePos.x;
+        constants.debug.mouseY = m_ui.MousePos.y;
 
         constants.denoisingHitParamConsts = { m_ui.ReblurSettings.hitDistanceParameters.A, m_ui.ReblurSettings.hitDistanceParameters.B,
                                               m_ui.ReblurSettings.hitDistanceParameters.C, m_ui.ReblurSettings.hitDistanceParameters.D };
@@ -1945,20 +1928,23 @@ void Sample::Render(nvrhi::IFramebuffer* framebuffer)
             slConstants.prevClipToClip = make_sl_float4x4(inverse(reprojectionMatrix));
             slConstants.reset = needNewPasses ? sl::Boolean::eTrue : sl::Boolean::eFalse;
             slConstants.motionVectors3D = sl::Boolean::eFalse;
-            slConstants.notRenderingGameFrames = sl::Boolean::eFalse;
+            slConstants.motionVectorsInvalidValue = FLT_MIN;
 
-            m_SLWrapper->SetSLConsts(slConstants, GetFrameIndex());
+            SLWrapper::Get().SetSLConsts(slConstants);
         }
 
-        m_SLWrapper->TagResources(m_CommandList,
-            GetFrameIndex(),
+        // TAG STREAMLINE RESOURCES
+        SLWrapper::Get().TagResources_General(m_CommandList,
             m_View->GetChildView(ViewType::PLANAR, 0),
-            m_RenderTargets->ProcessedOutputColor,
-            m_RenderTargets->OutputColor,
             m_RenderTargets->ScreenMotionVectors,
             m_RenderTargets->Depth,
-            m_RenderTargets->PreUIColor,
-            m_RenderSize);
+            m_RenderTargets->PreUIColor);
+
+        // TAG STREAMLINE RESOURCES
+        SLWrapper::Get().TagResources_DLSS_NIS(m_CommandList,
+            m_View->GetChildView(ViewType::PLANAR, 0),
+            m_RenderTargets->ProcessedOutputColor,
+            m_RenderTargets->OutputColor);
 
 #endif // #ifdef STREAMLINE_INTEGRATION
       
@@ -1993,7 +1979,7 @@ void Sample::Render(nvrhi::IFramebuffer* framebuffer)
     m_CommandList->endMarker();
 
     // this allows path tracer to easily output debug viz or error metrics into a separate buffer that gets applied after tone-mapping
-    m_PostProcess->Apply(m_CommandList, PostProcess::RenderPassType::Debug_BlendDebugViz, m_ConstantBuffer, m_MiniConstantBuffer, framebuffer, *m_RenderTargets, finalColor, m_PingActive);
+    m_PostProcess->Apply(m_CommandList, PostProcess::RenderPassType::Debug_BlendDebugViz, m_ConstantBuffer, m_MiniConstantBuffer, framebuffer, *m_RenderTargets, finalColor);
 
     if (m_ui.ShowDebugLines == true)
     {
@@ -2101,8 +2087,6 @@ void Sample::Render(nvrhi::IFramebuffer* framebuffer)
 	GetDeviceManager()->SetVsyncEnabled(m_ui.EnableVsync);
 
     PostUpdatePathTracing();
-
-    m_PingActive = !m_PingActive;   // this swaps between ping pong buffers (previous/current)
 }
 
 std::shared_ptr<donut::engine::Material> Sample::FindMaterial(int materialID) const
@@ -2116,7 +2100,7 @@ std::shared_ptr<donut::engine::Material> Sample::FindMaterial(int materialID) co
 
 void Sample::PathTrace(nvrhi::IFramebuffer* framebuffer, const SampleConstants & constants)
 {
-    m_CommandList->beginMarker("PathTrace");
+    m_CommandList->beginMarker("MainRendering");
 
     bool useStablePlanes = m_ui.ActualUseStablePlanes();
 
@@ -2128,23 +2112,23 @@ void Sample::PathTrace(nvrhi::IFramebuffer* framebuffer, const SampleConstants &
     uint32_t height = (uint32_t)(viewport.maxY - viewport.minY);
     args.width = width;
     args.height = height;
-
+    
     uint version;
     uint versionBase = (m_ui.DXRHitObjectExtension)?(3):(0);    // HitObjectExtension-enabled permutations are offset by 3 - see CreatePTPipeline; this will possibly go away once part of API (it can be dynamic)
 
     if (useStablePlanes)
     {
-        m_CommandList->beginMarker("StablePlanesBuild");
-        int version = versionBase+STABLE_PLANES_BUILD_PASS;
+        m_CommandList->beginMarker("PathTraceSPB");
+        int version = versionBase+PATH_TRACER_MODE_BUILD_STABLE_PLANES;
         state.shaderTable = m_PTShaderTable[version];
-        state.bindings = { (m_PingActive)?(m_PingBindingSet):(m_PongBindingSet), m_DescriptorTable->GetDescriptorTable() };
+        state.bindings = { m_BindingSet, m_DescriptorTable->GetDescriptorTable() };
         m_CommandList->setRayTracingState(state);
         m_CommandList->dispatchRays(args);
         m_CommandList->endMarker();
 
 		m_CommandList->beginMarker("VBufferExport");
 		nvrhi::ComputeState state;
-		state.bindings = { (m_PingActive)?(m_PingBindingSet):(m_PongBindingSet), m_DescriptorTable->GetDescriptorTable() };
+		state.bindings = { m_BindingSet, m_DescriptorTable->GetDescriptorTable() };
         state.pipeline = m_ExportVBufferPSO;
         m_CommandList->setComputeState(state);
         
@@ -2153,40 +2137,42 @@ void Sample::PathTrace(nvrhi::IFramebuffer* framebuffer, const SampleConstants &
 		m_CommandList->endMarker();
     }
 
-    if( m_ui.ActualUseReSTIR() )
-        m_RtxdiPass->Execute(m_CommandList, (m_PingActive)?(m_PingBindingSet):(m_PongBindingSet));
-
-    version = (useStablePlanes ? STABLE_PLANES_NOISY_PASS : STABLE_PLANES_DISABLED) + versionBase;
+    version = (useStablePlanes ? PATH_TRACER_MODE_FILL_STABLE_PLANES : PATH_TRACER_MODE_REFERENCE) + versionBase;
 
     m_CommandList->beginMarker("PathTrace");
 
     state.shaderTable = m_PTShaderTable[version];
-    state.bindings = { (m_PingActive)?(m_PingBindingSet):(m_PongBindingSet), m_DescriptorTable->GetDescriptorTable() };
+    state.bindings = { m_BindingSet, m_DescriptorTable->GetDescriptorTable() };
     m_CommandList->setRayTracingState(state);
 	m_CommandList->dispatchRays(args);
 
     m_CommandList->endMarker();
 
-    if (m_ui.ActualUseReSTIR())
-    {
-        m_CommandList->beginMarker("ReSTIRApply");
-        nvrhi::ComputeState state;
-        state.bindings = { (m_PingActive) ? (m_PingBindingSet) : (m_PongBindingSet), m_DescriptorTable->GetDescriptorTable() };
-        state.pipeline = m_ReSTIRApplyPSO;
-        m_CommandList->setComputeState(state);
-        const dm::uint2 dispatchSize = { (width + NUM_COMPUTE_THREADS_PER_DIM - 1) / NUM_COMPUTE_THREADS_PER_DIM, (height + NUM_COMPUTE_THREADS_PER_DIM - 1) / NUM_COMPUTE_THREADS_PER_DIM };
-        m_CommandList->dispatch(dispatchSize.x, dispatchSize.y);
-        m_CommandList->endMarker();
-    }
+    // this is a performance optimization where final 2 passes from ReSTIR DI and ReSTIR GI are combined to avoid loading GBuffer twice
+    static bool enableFusedDIGIFinal = true;
+    bool useFusedDIGIFinal = m_ui.ActualUseReSTIRDI() && m_ui.ActualUseReSTIRGI() && enableFusedDIGIFinal;
+
+    if (m_ui.ActualUseReSTIRDI() || m_ui.ActualUseReSTIRGI())
+        m_CommandList->beginMarker("RTXDI");
+
+    if (m_ui.ActualUseReSTIRDI())
+        // this does all ReSTIR DI magic including applying the final sample into correct radiance buffer (depending on denoiser state)
+        m_RtxdiPass->Execute(m_CommandList, m_BindingSet, useFusedDIGIFinal);
 
     if (m_ui.ActualUseReSTIRGI())
-        m_RtxdiPass->ExecuteGI(m_CommandList, (m_PingActive) ? (m_PingBindingSet) : (m_PongBindingSet));
+        m_RtxdiPass->ExecuteGI(m_CommandList, m_BindingSet, useFusedDIGIFinal);
+
+    if (useFusedDIGIFinal)
+        m_RtxdiPass->ExecuteFusedDIGIFinal(m_CommandList, m_BindingSet);
+
+    if (m_ui.ActualUseReSTIRDI() || m_ui.ActualUseReSTIRGI())
+        m_CommandList->endMarker();
         
     if (useStablePlanes && (m_ui.DebugView >= DebugViewType::ImagePlaneRayLength && m_ui.DebugView <= DebugViewType::StablePlaneSpecHitDist || m_ui.DebugView == DebugViewType::StableRadiance) )
     {
         m_CommandList->beginMarker("StablePlanesDebugViz");
         nvrhi::TextureDesc tdesc = m_RenderTargets->OutputColor->getDesc();
-        m_PostProcess->Apply(m_CommandList, PostProcess::ComputePassType::StablePlanesDebugViz, m_ConstantBuffer, m_MiniConstantBuffer, (m_PingActive)?(m_PingBindingSet):(m_PongBindingSet), m_BindingLayout, tdesc.width, tdesc.height, m_PingActive);
+        m_PostProcess->Apply(m_CommandList, PostProcess::ComputePassType::StablePlanesDebugViz, m_ConstantBuffer, m_MiniConstantBuffer, m_BindingSet, m_BindingLayout, tdesc.width, tdesc.height);
         m_CommandList->endMarker();
 
     }
@@ -2217,20 +2203,21 @@ void Sample::Denoise(nvrhi::IFramebuffer* framebuffer)
         // Direct inputs to denoiser are reused between passes; there's redundant copies but it makes interfacing simpler
         nvrhi::TextureDesc tdesc = m_RenderTargets->OutputColor->getDesc();
         m_CommandList->beginMarker("PrepareInputs");
-        m_PostProcess->Apply(m_CommandList, preparePassType, m_ConstantBuffer, m_MiniConstantBuffer, (m_PingActive)?(m_PingBindingSet):(m_PongBindingSet), m_BindingLayout, tdesc.width, tdesc.height, m_PingActive);
+        m_PostProcess->Apply(m_CommandList, preparePassType, m_ConstantBuffer, m_MiniConstantBuffer, m_BindingSet, m_BindingLayout, tdesc.width, tdesc.height);
         m_CommandList->endMarker();
 
+        bool enableValidation = m_ui.DebugView == DebugViewType::StablePlaneDenoiserValidation;
         if (nrdUseRelax)
         {
-            m_NRD[pass]->RunDenoiserPasses(m_CommandList, *m_RenderTargets, pass, *m_View, *m_ViewPrevious, GetFrameIndex(), m_ui.NRDDisocclusionThreshold, m_ui.NRDDisocclusionThresholdAlternate, m_ui.NRDUseAlternateDisocclusionThresholdMix, &m_ui.RelaxSettings);
+            m_NRD[pass]->RunDenoiserPasses(m_CommandList, *m_RenderTargets, pass, *m_View, *m_ViewPrevious, GetFrameIndex(), m_ui.NRDDisocclusionThreshold, m_ui.NRDDisocclusionThresholdAlternate, m_ui.NRDUseAlternateDisocclusionThresholdMix, enableValidation, &m_ui.RelaxSettings);
         }
         else
         {
-            m_NRD[pass]->RunDenoiserPasses(m_CommandList, *m_RenderTargets, pass, *m_View, *m_ViewPrevious, GetFrameIndex(), m_ui.NRDDisocclusionThreshold, m_ui.NRDDisocclusionThresholdAlternate, m_ui.NRDUseAlternateDisocclusionThresholdMix, &m_ui.ReblurSettings);
+            m_NRD[pass]->RunDenoiserPasses(m_CommandList, *m_RenderTargets, pass, *m_View, *m_ViewPrevious, GetFrameIndex(), m_ui.NRDDisocclusionThreshold, m_ui.NRDDisocclusionThresholdAlternate, m_ui.NRDUseAlternateDisocclusionThresholdMix, enableValidation, &m_ui.ReblurSettings);
         }
 
         m_CommandList->beginMarker("MergeOutputs");
-        m_PostProcess->Apply(m_CommandList, mergePassType, pass, m_ConstantBuffer, m_MiniConstantBuffer, m_RenderTargets->OutputColor, *m_RenderTargets, nullptr, m_PingActive);
+        m_PostProcess->Apply(m_CommandList, mergePassType, pass, m_ConstantBuffer, m_MiniConstantBuffer, m_RenderTargets->OutputColor, *m_RenderTargets, nullptr);
         m_CommandList->endMarker();
 
         m_CommandList->endMarker();
@@ -2272,16 +2259,16 @@ void Sample::PostProcessAA(nvrhi::IFramebuffer* framebuffer)
     }
     
 #ifdef STREAMLINE_INTEGRATION
-    if(m_ui.RealtimeMode && (m_ui.RealtimeAA == 2 || m_ui.RealtimeAA == 3) && m_ui.DLSS_Mode != sl::DLSSMode::eDLSSModeOff)
+    if(m_ui.RealtimeMode && (m_ui.RealtimeAA == 2 || m_ui.RealtimeAA == 3) && m_ui.DLSS_Mode != sl::DLSSMode::eOff)
     {
         m_CommandList->setTextureState(m_RenderTargets->ProcessedOutputColor, nvrhi::TextureSubresourceSet(), nvrhi::ResourceStates::RenderTarget);
-        m_CommandList->setTextureState(m_RenderTargets->OutputColor, nvrhi::TextureSubresourceSet(), nvrhi::ResourceStates::UnorderedAccess);
+        m_CommandList->setTextureState(m_RenderTargets->OutputColor, nvrhi::TextureSubresourceSet(), nvrhi::ResourceStates::RenderTarget);
         m_CommandList->setTextureState(m_RenderTargets->ScreenMotionVectors, nvrhi::TextureSubresourceSet(), nvrhi::ResourceStates::RenderTarget);
         m_CommandList->setTextureState(m_RenderTargets->Depth, nvrhi::TextureSubresourceSet(), nvrhi::ResourceStates::RenderTarget);
         m_CommandList->setTextureState(m_RenderTargets->PreUIColor, nvrhi::TextureSubresourceSet(), nvrhi::ResourceStates::RenderTarget);
         m_CommandList->commitBarriers();
 
-        m_SLWrapper->EvaluateDLSS(m_CommandList, GetFrameIndex());
+        SLWrapper::Get().EvaluateDLSS(m_CommandList);
 
         m_CommandList->clearState();
     }
@@ -2407,20 +2394,14 @@ donut::math::float2 Sample::ComputeCameraJitter(uint frameIndex)
     return m_TemporalAntiAliasingPass->GetCurrentPixelOffset();
 }
 
-
 #ifdef WIN32
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 #else
 int main(int __argc, const char** __argv)
 #endif
 {
-    // TODO: only DX12 supported for now but leaving this in for future Vulkan support
     nvrhi::GraphicsAPI api = app::GetGraphicsAPIFromCommandLine(__argc, __argv);
     app::DeviceManager* deviceManager = app::DeviceManager::Create(api);
-
-#ifdef STREAMLINE_INTEGRATION
-    SLWrapper::Initialize(api);
-#endif
 
     app::DeviceCreationParameters deviceParams;
     // deviceParams.adapter = VrSystem::GetRequiredAdapter();
@@ -2440,6 +2421,7 @@ int main(int __argc, const char** __argv)
 #endif
 #if USE_VK
     deviceParams.requiredVulkanDeviceExtensions.push_back("VK_KHR_buffer_device_address");
+    deviceParams.requiredVulkanDeviceExtensions.push_back("VK_KHR_format_feature_flags2");
 
     // Attachment 0 not written by fragment shader; undefined values will be written to attachment (OMM baker)
     deviceParams.ignoredVulkanValidationMessageLocations.push_back(0x0000000023e43bb7);
@@ -2452,8 +2434,8 @@ int main(int __argc, const char** __argv)
     // Vulkan validation layer not supporting OMM?
     deviceParams.ignoredVulkanValidationMessageLocations.push_back(0x00000000591f70f2);
 #endif
-    
-    //deviceParams.adapterNameSubstring = L"RTX"; // if running on a laptop with a raytrace capable GPU but also integrated gfx that doesn't support RT, use this to select the right adapter; TODO: make this smarter - we need caps, not a specific name
+
+
     deviceParams.enablePerMonitorDPI = true;
 
     std::string preferredScene = "kitchen.scene.json"; //"programmer-art.scene.json";
@@ -2488,13 +2470,52 @@ int main(int __argc, const char** __argv)
             else
                 log::fatal("-height must be followed by an integer, e.g -height 1440");
         }
+
+        if (strcmp(__argv[i], "-adapter") == 0)
+        {
+            if (i + 1 < __argc)
+            {
+                std::string v = __argv[++i];
+                deviceParams.adapterNameSubstring = std::wstring(v.begin(), v.end());
+            }
+            else
+                log::fatal("-adapter must be followed by a string used to match the preferred adapter, e.g -adapter NVIDIA or -adapter RTX");
+        }
+
+        if (strcmp(__argv[i], "-fullscreen") == 0)
+            deviceParams.startFullscreen = true;
     }
+
+
+#ifdef STREAMLINE_INTEGRATION
+    bool checkSig = true;
+    bool SLlog = false;
+
+#ifdef _DEBUG
+    checkSig = false;
+#endif
+
+    auto success = SLWrapper::Get().Initialize_preDevice(api, checkSig, SLlog);
+    if (!success)
+        return 1;
+
+    if (deviceParams.adapterNameSubstring.empty() && (api == nvrhi::GraphicsAPI::D3D11 || api == nvrhi::GraphicsAPI::D3D12))
+    {
+        SLWrapper::Get().FindAdapter((void*&)(deviceParams.adapter));
+    }
+#endif
 
     if (!deviceManager->CreateWindowDeviceAndSwapChain(deviceParams, g_WindowTitle))
     {
         log::fatal("Cannot initialize a graphics device with the requested parameters");
         return 1;
     }
+
+#ifdef STREAMLINE_INTEGRATION
+    SLWrapper::Get().SetDevice_nvrhi(deviceManager->GetDevice());
+    SLWrapper::Get().Initialize_postDevice();
+    SLWrapper::Get().UpdateFeatureAvailable(deviceManager);
+#endif
 
     if (!deviceManager->GetDevice()->queryFeatureSupport(nvrhi::Feature::RayTracingPipeline))
     {
@@ -2528,7 +2549,11 @@ int main(int __argc, const char** __argv)
             deviceManager->RemoveRenderPass(&example);
         }
     }
-    
+
+#ifdef STREAMLINE_INTEGRATION
+    SLWrapper::Get().Shutdown();
+#endif
+
     deviceManager->Shutdown();
 
     delete deviceManager;

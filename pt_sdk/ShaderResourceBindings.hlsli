@@ -12,6 +12,7 @@
 #define __SHADER_RESOURCE_BINDINGS_HLSLI__
 
 #include "SampleConstantBuffer.h"
+#include "RTXDI/ShaderParameters.h"
 
 ConstantBuffer<SampleConstants>         g_Const                     : register(b0);
 ConstantBuffer<SampleMiniConstants>     g_MiniConst                 : register(b1);
@@ -19,14 +20,14 @@ ConstantBuffer<SampleMiniConstants>     g_MiniConst                 : register(b
 // All outputs are defined here
 RWTexture2D<float4>                     u_Output                    : register(u0); // main HDR output
 
+RWTexture2D<uint>                       u_Throughput                : register(u4); // used by RTXDI, etc. Packed as R11G11B10_FLOAT
 RWTexture2D<float4>                     u_MotionVectors             : register(u5); // used by RTXDI, DLSS/TAA, etc.
 RWTexture2D<float>                      u_Depth                     : register(u6); // used by RTXDI, DLSS/TAA, etc.
 
-RWTexture2D<uint4>                      u_StablePlanesHeader        : register(u40);
-RWTexture2D<uint4>                      u_PrevStablePlanesHeader    : register(u41);
+RWTexture2DArray<uint>                  u_StablePlanesHeader        : register(u40);
 RWStructuredBuffer<StablePlane>         u_StablePlanesBuffer        : register(u42);
-RWStructuredBuffer<StablePlane>         u_PrevStablePlanesBuffer    : register(u43);
 RWTexture2D<float4>                     u_StableRadiance            : register(u44);
+RWStructuredBuffer<PackedPathTracerSurfaceData> u_SurfaceData       : register(u45);
 
 // this is for debugging viz
 RWTexture2D<float4>                     u_DebugVizOutput            : register(u50);

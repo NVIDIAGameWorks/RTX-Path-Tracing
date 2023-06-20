@@ -15,17 +15,24 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)
 
-option(STREAMLINE_INTEGRATION "Enable Streamline integration (Required for DLSS3.0 and etc.)" FALSE)
+if (NOT EXISTS "${CMAKE_SOURCE_DIR}/external/NVAPI" OR NOT EXISTS "${CMAKE_SOURCE_DIR}/media")
+    message(FATAL_ERROR "${CMAKE_SOURCE_DIR}/external/NVAPI and/or ${CMAKE_SOURCE_DIR}/media folders not present: \n!!!! please run update_dependencies.bat first !!!! ")
+endif()
+
+option(STREAMLINE_INTEGRATION "Enable Streamline integration (Required for DLSS3.0 and etc.)" ON)
 
 option(NVRHI_WITH_NVAPI "Include NVAPI support (requires NVAPI SDK)" ON)
 set(NVAPI_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/external/nvapi/" CACHE STRING "Path to NVAPI include headers/shaders" )
 set(NVAPI_LIBRARY "${CMAKE_SOURCE_DIR}/external/nvapi/amd64/nvapi64.lib" CACHE STRING "Path to NVAPI .lib file")
 
+set(DXC_CUSTOM_PATH "${CMAKE_SOURCE_DIR}/external/dxc/bin/x64/" CACHE STRING "Path to embedded dxc")
+set(DXC_PATH "${DXC_CUSTOM_PATH}/dxc.exe" CACHE STRING "Path to embedded dxc file for DX12")
+set(DXC_DXIL_EXECUTABLE "${DXC_CUSTOM_PATH}/dxc.exe" CACHE STRING "Path to embedded dxc file for DX12")
+#set(DXC_SPIRV_EXECUTABLE "${DXC_CUSTOM_PATH}/dxc.exe" CACHE STRING "Path to embedded dxc file for SPIRV") # default to using dxc from the Vulkan SDK; remove this to use embedded .dxc
+
 if (MSVC)
     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /D_ITERATOR_DEBUG_LEVEL=1")
 endif()
-
-set(DXC_DXIL_EXECUTABLE "${CMAKE_SOURCE_DIR}/external/dxc/bin/x64/dxc.exe" CACHE STRING "DXC shader compiler path")
 
 # option(USE_RAY_TRACING_DENOISER "Include NRD as part of the sample." ON)
 option(DONUT_WITH_ASSIMP "" OFF)

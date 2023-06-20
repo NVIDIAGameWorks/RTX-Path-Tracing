@@ -63,6 +63,10 @@ freely, subject to the following restrictions:
 
 #include <sstream>
 
+#ifdef STREAMLINE_INTEGRATION
+#include "../../../../pt_sdk/Streamline/SLWrapper.h"
+#endif
+
 using nvrhi::RefCountPtr;
 
 using namespace donut::app;
@@ -344,6 +348,12 @@ bool DeviceManager_DX12::CreateDeviceAndSwapChain()
         m_DeviceParams.featureLevel,
         IID_PPV_ARGS(&m_Device12));
     HR_RETURN(hr)
+
+#ifdef STREAMLINE_INTEGRATION
+    void* nativeDeviceHandle = NULL;
+    SLWrapper::Get().ProxyToNative(m_Device12, (void**)&nativeDeviceHandle);
+    SLWrapper::Get().SetDevice_raw(nativeDeviceHandle);
+#endif
 
     if (m_DeviceParams.enableDebugRuntime)
     {

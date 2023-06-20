@@ -31,8 +31,6 @@ static const uint       cStablePlaneInvalidBranchID     = 0xFFFFFFFF;       // t
 static const uint       cStablePlaneEnqueuedBranchID    = 0xFFFFFFFF-1;     // this means it contains enqueued delta path exploration data; it should never be set to this value outside of path tracing passes (would indicate bug)
 static const uint       cStablePlaneJustStartedID       = 0;                // this means the delta path is currently being explored; it should never be set to this value outside of path tracing passes (would indicate bug)
 
-#define                 STABLE_PLANES_LAYOUT_TILE_SIZE  8
-
 // Call after every scatter to update stable branch ID; deltaLobeID must be < 4, vertexIndex must be <= cStablePlaneMaxVertexIndex
 uint StablePlanesAdvanceBranchID(const uint prevStableBranchID, const uint deltaLobeID);
 uint StablePlanesGetParentLobeID(const uint stableBranchID);
@@ -43,10 +41,6 @@ bool StablePlaneIsOnStablePath(const uint planeBranchID, const uint vertexBranch
 float StablePlaneAccumulateSampleHitT(float currentHitT, float currentSegmentT, uint bouncesFromPlane, bool pathIsDeltaOnlyPath);
 float4 StablePlaneCombineWithHitTCompensation(float4 currentRadianceHitDist, float3 newRadiance, float newHitT);
 float3 StablePlaneDebugVizColor(const uint planeIndex);
-
-uint StablePlanesComputeStorageElementCount(const uint imageWidth, const uint imageHeight);
-uint StablePlanesPixelToAddress(const uint2 pixelPos, const uint planeIndex, const uint imageWidth, const uint imageHeight);
-uint3 StablePlanesAddressToPixel(const uint address, const uint imageWidth, const uint imageHeight);
 
 // multiple (cStablePlaneCount), 2x - current and history
 struct StablePlane
@@ -64,7 +58,7 @@ struct StablePlane
     bool            IsEmpty()                                                                       { return VertexIndexSortKey == 0; }
 
 
-#if STABLE_PLANES_MODE==STABLE_PLANES_BUILD_PASS
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES
     // This is used only during the stable path build to start new branches - just reusing the data; payload size mismatch will trigger compile error - easy to fix!
     void            PackCustomPayload( const uint4 packed[6] );
     void            UnpackCustomPayload( inout uint4 packed[6] );
@@ -75,23 +69,19 @@ struct StablePlanesContext
 {
 #if !defined(__cplusplus) // shader only!
     RWTexture2D<float4>                     StableRadianceUAV;
-    RWTexture2D<uint4>                      StablePlanesHeaderUAV;      // [0,1,2] are StableBranchIDs, [3] is asuint(FirstHitRayLength)
+    RWTexture2DArray<uint>                  StablePlanesHeaderUAV;      // [0,1,2] are StableBranchIDs, [3] is asuint(FirstHitRayLength)
     RWStructuredBuffer<StablePlane>         StablePlanesUAV;
-    RWTexture2D<uint4>                      PrevStablePlanesHeaderUAV;  // history
-    RWStructuredBuffer<StablePlane>         PrevStablePlanesUAV;        // history
     RWTexture2D<float4>                     SecondarySurfaceRadiance;   // for ReSTIR GI
 
     PathTracerConstants                     PTConstants;
 
     uint2                                   CenterPixelPos;
 
-    static StablePlanesContext make(uint2 pixelPos, RWTexture2D<uint4> stablePlanesHeaderUAV, RWStructuredBuffer<StablePlane> stablePlanesUAV, RWTexture2D<uint4> prevStablePlanesHeaderUAV, RWStructuredBuffer<StablePlane> prevStablePlanesUAV, RWTexture2D<float4> stableRadianceUAV, RWTexture2D<float4> secondarySurfaceRadiance, PathTracerConstants ptConstants)
+    static StablePlanesContext make(uint2 pixelPos, RWTexture2DArray<uint> stablePlanesHeaderUAV, RWStructuredBuffer<StablePlane> stablePlanesUAV, RWTexture2D<float4> stableRadianceUAV, RWTexture2D<float4> secondarySurfaceRadiance, PathTracerConstants ptConstants)
     {
         StablePlanesContext ret;
         ret.StablePlanesHeaderUAV       = stablePlanesHeaderUAV;
         ret.StablePlanesUAV             = stablePlanesUAV;
-        ret.PrevStablePlanesHeaderUAV   = prevStablePlanesHeaderUAV;
-        ret.PrevStablePlanesUAV         = prevStablePlanesUAV;
         ret.StableRadianceUAV           = stableRadianceUAV;
         ret.SecondarySurfaceRadiance    = secondarySurfaceRadiance;
         ret.PTConstants                 = ptConstants;
@@ -102,69 +92,61 @@ struct StablePlanesContext
     // TODO: currently using scanline; update to more cache friendly addressing
     uint    PixelToAddress(uint2 pixelPos, uint planeIndex)
     {
-        return StablePlanesPixelToAddress(pixelPos, planeIndex, PTConstants.imageWidth, PTConstants.imageHeight);
+        return GenericTSPixelToAddress(pixelPos, planeIndex, PTConstants.genericTSLineStride, PTConstants.genericTSPlaneStride);
     }
     
     uint    PixelToAddress(uint2 pixelPos)                                      { return PixelToAddress(pixelPos, 0); }
     
-    StablePlane LoadStablePlane(const uint2 pixelPos, const uint planeIndex, const uniform bool prevFrame)
+    StablePlane LoadStablePlane(const uint2 pixelPos, const uint planeIndex)
     {
         uint address = PixelToAddress( pixelPos, planeIndex );
-        StablePlane sp;
-        if (!prevFrame) 
-            sp = StablePlanesUAV[address];
-        else
-            sp = PrevStablePlanesUAV[address];
-        return sp;
+        return StablePlanesUAV[address];
     }
 
     uint    GetBranchID(const uint2 pixelPos, const uint planeIndex)
     {
-        return uint3(StablePlanesHeaderUAV[pixelPos].xyz)[planeIndex];
+        return StablePlanesHeaderUAV[uint3(pixelPos,planeIndex)];
     }
 
-    uint    GetBranchID(const uint planeIndex)
+    uint    GetBranchIDCenter(const uint planeIndex)
     {
         return GetBranchID(CenterPixelPos, planeIndex);
     }
 
-    void    SetBranchID(const uint planeIndex, uint stableBranchID)
+    void    SetBranchIDCenter(const uint planeIndex, uint stableBranchID)
     {
-        if (planeIndex==0) // StablePlanesHeaderUAV[CenterPixelPos][planeIndex] does not work in HLSL :| - operator [] is read-only
-            StablePlanesHeaderUAV[CenterPixelPos].x = stableBranchID;
-        else if (planeIndex==1)
-            StablePlanesHeaderUAV[CenterPixelPos].y = stableBranchID;
-        else if (planeIndex==2)
-            StablePlanesHeaderUAV[CenterPixelPos].z = stableBranchID;
+        StablePlanesHeaderUAV[uint3(CenterPixelPos, planeIndex)] = stableBranchID;
     }
 
-    void    LoadStablePlane(const uint2 pixelPos, const uint planeIndex, const uniform bool prevFrame, out uint vertexIndex, out uint4 packedHitInfo, out uint SERSortKey, out uint stableBranchID, 
-                            out float3 rayDir, out float sceneLength, out float3 thp, out float3 motionVectors )
+    static void UnpackStablePlane(const StablePlane sp, out uint vertexIndex, out uint4 packedHitInfo, out uint SERSortKey, out float3 rayDir, out float sceneLength, out float3 thp, out float3 motionVectors)
     {
-        StablePlane sp = LoadStablePlane(pixelPos, planeIndex, prevFrame);
         vertexIndex     = sp.VertexIndexSortKey>>16;
         packedHitInfo   = sp.PackedHitInfo;
         SERSortKey      = sp.VertexIndexSortKey&0xFFFF;
         sceneLength     = length(sp.RayDirSceneLength.xyz);
         rayDir          = sp.RayDirSceneLength.xyz / sceneLength;
         UnpackTwoFp32ToFp16(sp.PackedThpAndMVs, thp, motionVectors);
-        stableBranchID  = GetBranchID(pixelPos, planeIndex);
     }
 
-    uint4               LoadStablePlanesHeader(uint2 pixelPos)                          { return StablePlanesHeaderUAV[pixelPos]; }
+    void    LoadStablePlane(const uint2 pixelPos, const uint planeIndex, out uint vertexIndex, out uint4 packedHitInfo, out uint SERSortKey, out uint stableBranchID, 
+                            out float3 rayDir, out float sceneLength, out float3 thp, out float3 motionVectors )
+    {
+        stableBranchID = GetBranchID(pixelPos, planeIndex);
+        UnpackStablePlane( LoadStablePlane(pixelPos, planeIndex), vertexIndex, packedHitInfo, SERSortKey, rayDir, sceneLength, thp, motionVectors );
+    }
 
     void                StoreStableRadiance(uint2 pixelPos, float3 radiance)            { StableRadianceUAV[pixelPos].xyzw = float4(clamp( radiance, 0, HLF_MAX ), 0); }
     float3              LoadStableRadiance(uint2 pixelPos)                              { return StableRadianceUAV[pixelPos].xyz; }
 
     // last 2 bits are for dominant SP index
-    void                StoreFirstHitRayLengthAndClearDominantToZero(float length)      { StablePlanesHeaderUAV[CenterPixelPos].w = asuint(min(kMaxRayTravel, length)) & 0xFFFFFFFC; }
-    float               LoadFirstHitRayLength(uint2 pixelPos)                           { return asfloat(StablePlanesHeaderUAV[pixelPos].w & 0xFFFFFFFC); }
-    void                StoreDominantIndex(uint index)                                  { StablePlanesHeaderUAV[CenterPixelPos].w = (StablePlanesHeaderUAV[CenterPixelPos].w & 0xFFFFFFFC) | (0x3 & index); }
-    uint                LoadDominantIndex()                                             { return StablePlanesHeaderUAV[CenterPixelPos].w & 0x3; }
+    void                StoreFirstHitRayLengthAndClearDominantToZeroCenter(float length){ StablePlanesHeaderUAV[uint3(CenterPixelPos, 3)] = asuint(min(kMaxRayTravel, length)) & 0xFFFFFFFC; }
+    float               LoadFirstHitRayLength(uint2 pixelPos)                           { return asfloat(StablePlanesHeaderUAV[uint3(pixelPos, 3)] & 0xFFFFFFFC); }
+    void                StoreDominantIndexCenter(uint index)                            { StablePlanesHeaderUAV[uint3(CenterPixelPos, 3)] = (StablePlanesHeaderUAV[uint3(CenterPixelPos, 3)] & 0xFFFFFFFC) | (0x3 & index); }
+    uint                LoadDominantIndexCenter()                                       { return StablePlanesHeaderUAV[uint3(CenterPixelPos, 3)] & 0x3; }
 
 
     // this stores at surface hit, with path processed in PathTracer::handleHit and decision taken to use vertex as stable plane
-    void                StoreStablePlane(const uint planeIndex, const uint vertexIndex, const uint4 packedHitInfo, const uint SERSortKey, const uint stableBranchID, const float3 rayDir, const float sceneLength,
+    void                StoreStablePlaneCenter(const uint planeIndex, const uint vertexIndex, const uint4 packedHitInfo, const uint SERSortKey, const uint stableBranchID, const float3 rayDir, const float sceneLength,
                                             const float3 thp, const float3 motionVectors, const float roughness, const float3 worldNormal, const float3 diffBSDFEstimate, const float3 specBSDFEstimate, bool dominantSP )
     {
         uint address = PixelToAddress( CenterPixelPos, planeIndex );
@@ -186,35 +168,35 @@ struct StablePlanesContext
         sp.DenoiserNormalRoughness     = float4( worldNormal, max(cMinRoughness, roughness) );
         sp.DenoiserPackedRadianceHitDist = 0;
         StablePlanesUAV[address] = sp;
-        SetBranchID(planeIndex, stableBranchID);
+        SetBranchIDCenter(planeIndex, stableBranchID);
 
         if (dominantSP && planeIndex != 0) // planeIndex 0 is dominant by default
-            StoreDominantIndex(planeIndex); // we assume StoreFirstHitRayLengthAndClearDominantToZero was already called
+            StoreDominantIndexCenter(planeIndex); // we assume StoreFirstHitRayLengthAndClearDominantToZero was already called
     }
 
-#if STABLE_PLANES_MODE==STABLE_PLANES_BUILD_PASS
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES
     // as we go on forking the delta paths, we need to store the payloads somewhere to be able to explore them later!
-    void                StoreExplorationStart(uint planeIndex, const uint4 pathPayload[6])
+    void                StoreExplorationStart(uint planeIndex, const uint4 pathPayload[6])  // these are implicitly 'Center' (CenterPixelPos)
     {
         uint address = PixelToAddress( CenterPixelPos, planeIndex );
         StablePlane sp;
         sp.PackCustomPayload(pathPayload);
         StablePlanesUAV[address] = sp;
-        SetBranchID(planeIndex, cStablePlaneEnqueuedBranchID);
+        SetBranchIDCenter(planeIndex, cStablePlaneEnqueuedBranchID);
     }
-    void                ExplorationStart(uint planeIndex, inout uint4 pathPayload[6])
+    void                ExplorationStart(uint planeIndex, inout uint4 pathPayload[6])  // these are implicitly 'Center' (CenterPixelPos)
     {
         uint address = PixelToAddress( CenterPixelPos, planeIndex );
         StablePlane sp = StablePlanesUAV[address];
         sp.UnpackCustomPayload(pathPayload);
         // and then clear radiance buffers and few things like that - this plane is stared now and consecutive calls to this function on this plane are incorrect
         ResetPlaneRadiance(planeIndex);
-        SetBranchID(planeIndex, cStablePlaneJustStartedID);
+        SetBranchIDCenter(planeIndex, cStablePlaneJustStartedID);
     }
-    int                 FindNextToExplore()
+    int                 FindNextToExplore(uint fromPlane)
     {
-        for( int i = 1; i < cStablePlaneCount; i++ )
-            if( GetBranchID(i) == cStablePlaneEnqueuedBranchID )
+        for( int i = fromPlane; i < cStablePlaneCount; i++ )
+            if( GetBranchIDCenter(i) == cStablePlaneEnqueuedBranchID )
                 return i;
         return -1;
     }
@@ -223,30 +205,32 @@ struct StablePlanesContext
         // TODO optimize this; no need for this many reads, could just store availability
         availableCount = 0;
         for( int i = 1; i < min(PTConstants.activeStablePlaneCount, cStablePlaneCount); i++ )    // we know 1st isn't available so ignore it
-            if( GetBranchID(i) == cStablePlaneInvalidBranchID )
+            if( GetBranchIDCenter(i) == cStablePlaneInvalidBranchID )
                 availablePlanes[availableCount++] = i;
     }
 #endif
     // below is the stuff used during path tracing (build & fill), which is not required for denoising, RTXDI or any post-process
-    void StartPathTracingPass()
+    void StartPathTracingPass()  // these are implicitly 'Center' (CenterPixelPos)
     {
-#if STABLE_PLANES_MODE==STABLE_PLANES_BUILD_PASS // if first pass, initialize data
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES // if first pass, initialize data
         StoreStableRadiance(CenterPixelPos, 0.xxx);         // assume sky
-        StablePlanesHeaderUAV[CenterPixelPos].xyz = uint3(cStablePlaneInvalidBranchID,cStablePlaneInvalidBranchID,cStablePlaneInvalidBranchID);
+        StablePlanesHeaderUAV[uint3(CenterPixelPos, 0)] = cStablePlaneInvalidBranchID;
+        StablePlanesHeaderUAV[uint3(CenterPixelPos, 1)] = cStablePlaneInvalidBranchID;
+        StablePlanesHeaderUAV[uint3(CenterPixelPos, 2)] = cStablePlaneInvalidBranchID;
         ResetPlaneRadiance(0);
-#endif // STABLE_PLANES_MODE==STABLE_PLANES_BUILD_PASS
+#endif // PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES
     }
-#if STABLE_PLANES_MODE==STABLE_PLANES_BUILD_PASS // if first pass, initialize data; TODO: why is this necessary? Can't we init in StoreStablePlane?
-    void ResetPlaneRadiance(uint planeIndex) 
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES // if first pass, initialize data; TODO: why is this necessary? Can't we init in StoreStablePlane?
+    void ResetPlaneRadiance(uint planeIndex)  // these are implicitly 'Center' (CenterPixelPos)
     {
         uint address = PixelToAddress( CenterPixelPos, planeIndex );
         StablePlanesUAV[address].DenoiserPackedRadianceHitDist = PackTwoFp32ToFp16(0.xxxx, 0.xxxx);
     }
 #endif
 
-#if STABLE_PLANES_MODE==STABLE_PLANES_NOISY_PASS
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_FILL_STABLE_PLANES
     void CommitDenoiserRadiance(const uint planeIndex, float denoiserSampleHitTFromPlane, float4 denoiserDiffRadianceHitDist, float4 denoiserSpecRadianceHitDist,
-        float3 secondaryL, bool baseScatterDiff, bool onDeltaBranch, bool onDominantBranch)
+        float3 secondaryL, bool baseScatterDiff, bool onDeltaBranch, bool onDominantBranch)   // these are implicitly 'Center' (CenterPixelPos)
     {
         const bool useReSTIRGI = PTConstants.useReSTIRGI;
         uint address = PixelToAddress( CenterPixelPos, planeIndex ); 
@@ -270,23 +254,23 @@ struct StablePlanesContext
 
         StablePlanesUAV[address].DenoiserPackedRadianceHitDist = PackTwoFp32ToFp16(denoiserDiffRadianceHitDist, denoiserSpecRadianceHitDist);
     }
-#endif // #if STABLE_PLANES_MODE==STABLE_PLANES_NOISY_PASS
+#endif // #if PATH_TRACER_MODE==PATH_TRACER_MODE_FILL_STABLE_PLANES
 
-#if STABLE_PLANES_MODE==STABLE_PLANES_BUILD_PASS
-    float3 CompletePathTracingBuild(const float3 pathL)
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES
+    float3 CompletePathTracingBuild(const float3 pathL)  // these are implicitly 'Center' (CenterPixelPos)
     {
         StoreStableRadiance(CenterPixelPos, pathL);
         return pathL;
     }
-#elif STABLE_PLANES_MODE==STABLE_PLANES_NOISY_PASS
-    float3 CompletePathTracingFill(bool denoisingEnabled)
+#elif PATH_TRACER_MODE==PATH_TRACER_MODE_FILL_STABLE_PLANES
+    float3 CompletePathTracingFill(bool denoisingEnabled)  // these are implicitly 'Center' (CenterPixelPos)
     {
         float3 pathL = LoadStableRadiance(CenterPixelPos);
         if (!denoisingEnabled)
         {
             for (int i = 0; i < cStablePlaneCount; i++)
             {
-                if (GetBranchID(i) == cStablePlaneInvalidBranchID)
+                if (GetBranchIDCenter(i) == cStablePlaneInvalidBranchID)
                     continue;
 
                 float4 diff, spec; 
@@ -341,58 +325,6 @@ inline float3 StablePlaneDebugVizColor(const uint planeIndex)
     return float3( planeIndex==0 || planeIndex==3, planeIndex==1, planeIndex==2 || planeIndex==3 ); 
 }
 
-#if 1 // use linear storage (change requires cpp and shader recompile)
-inline uint StablePlanesComputeStorageElementCount(const uint imageWidth, const uint imageHeight)       
-{ 
-    return cStablePlaneCount * imageWidth * imageHeight; 
-}
-inline uint StablePlanesPixelToAddress(const uint2 pixelPos, const uint planeIndex, const uint imageWidth, const uint imageHeight )
-{
-    uint yInPlane = pixelPos.y + planeIndex * imageHeight;
-    return yInPlane * imageWidth + pixelPos.x;
-}
-inline uint3 StablePlanesAddressToPixel(const uint address, const uint imageWidth, const uint imageHeight)
-{
-    uint planeIndex = address / imageHeight;
-    uint2 pixelPos;
-    pixelPos.x = address % imageWidth;
-    pixelPos.y = (address / imageWidth) % imageHeight;
-    return uint3(pixelPos, planeIndex);
-}
-#else // use tiled storage - this is a prototype, it's faster than the linear above but we need something better (Morton?) and we need to bake in more constants instead of computing on the fly
-inline uint StablePlanesComputeStorageElementCount(const uint imageWidth, const uint imageHeight)
-{ 
-    uint tileSize = STABLE_PLANES_LAYOUT_TILE_SIZE;
-    uint tileCountX = (imageWidth + tileSize - 1) / tileSize;
-    uint tileCountY = (imageHeight + tileSize - 1) / tileSize;
-    return cStablePlaneCount * tileCountX * STABLE_PLANES_LAYOUT_TILE_SIZE * tileCountY * STABLE_PLANES_LAYOUT_TILE_SIZE; 
-}
-inline uint StablePlanesPixelToAddress(const uint2 pixelPos, const uint planeIndex, const uint imageWidth, const uint imageHeight ) // <- pass ptConstants or StablePlane constants in...
-{
-    uint yInPlane = pixelPos.y + planeIndex * imageHeight;
-
-    uint tileSize = STABLE_PLANES_LAYOUT_TILE_SIZE;
-    uint tileCountX = (imageWidth + tileSize - 1) / tileSize;
-
-    uint tileIndex      = pixelPos.x / tileSize + tileCountX * (yInPlane / tileSize);
-    uint tilePixelIndex = pixelPos.x % tileSize + tileSize * (yInPlane % tileSize);
-
-    return tileIndex * (tileSize*tileSize) + tilePixelIndex;
-}
-inline uint3 StablePlanesAddressToPixel(const uint address, const uint imageWidth, const uint imageHeight) // <- pass ptConstants or StablePlane constants in...
-{
-    uint tileSize = STABLE_PLANES_LAYOUT_TILE_SIZE;
-    uint tileCountX = (imageWidth + tileSize - 1) / tileSize;
-
-    uint tileIndex      = address / (tileSize*tileSize);
-    uint tilePixelIndex = address % (tileSize*tileSize);
-    uint2 pixelPosInPlane = uint2( (tileIndex % tileCountX) * tileSize + tilePixelIndex % tileSize, (tileIndex / tileCountX) * tileSize + tilePixelIndex / tileSize );
-
-    uint planeIndex = pixelPosInPlane.y / imageHeight;
-    return uint3(pixelPosInPlane.x, pixelPosInPlane.y% imageHeight, planeIndex);
-}
-#endif
-
 #if !defined(__cplusplus) // shader only!
 inline float StablePlaneAccumulateSampleHitT(float currentHitT, float currentSegmentT, uint bouncesFromPlane, bool pathIsDeltaOnlyPath)
 {
@@ -428,7 +360,7 @@ inline uint3 StablePlaneDebugVizFourWaySplitCoord(const int dbgPlaneIndex, const
 }
 #endif
 
-#if STABLE_PLANES_MODE==STABLE_PLANES_BUILD_PASS
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES
 void StablePlane::PackCustomPayload(const uint4 packed[6])
 {
     // WARNING: take care when changing these - error could be subtle and very hard to track down later

@@ -108,7 +108,7 @@ PostProcess::PostProcess( nvrhi::IDevice* device, std::shared_ptr<donut::engine:
     m_PointSampler = m_Device->createSampler(samplerDesc);
 }
 
-void PostProcess::Apply(nvrhi::ICommandList* commandList, RenderPassType passType, nvrhi::BufferHandle consts, nvrhi::BufferHandle miniConsts, nvrhi::IFramebuffer* targetFramebuffer, RenderTargets & renderTargets, nvrhi::ITexture* sourceTexture, bool pingActive)
+void PostProcess::Apply(nvrhi::ICommandList* commandList, RenderPassType passType, nvrhi::BufferHandle consts, nvrhi::BufferHandle miniConsts, nvrhi::IFramebuffer* targetFramebuffer, RenderTargets & renderTargets, nvrhi::ITexture* sourceTexture)
 {
     commandList->beginMarker("PostProcessPS");
 
@@ -165,7 +165,7 @@ void PostProcess::Apply(nvrhi::ICommandList* commandList, RenderPassType passTyp
     commandList->endMarker();
 }
 
-void PostProcess::Apply(nvrhi::ICommandList* commandList, ComputePassType passType, nvrhi::BufferHandle consts, nvrhi::BufferHandle miniConsts, nvrhi::BindingSetHandle bindingSet, nvrhi::BindingLayoutHandle bindingLayout, uint32_t width, uint32_t height, bool pingActive)
+void PostProcess::Apply(nvrhi::ICommandList* commandList, ComputePassType passType, nvrhi::BufferHandle consts, nvrhi::BufferHandle miniConsts, nvrhi::BindingSetHandle bindingSet, nvrhi::BindingLayoutHandle bindingLayout, uint32_t width, uint32_t height)
 {
     uint passIndex = (uint32_t)passType;
 
@@ -190,7 +190,7 @@ void PostProcess::Apply(nvrhi::ICommandList* commandList, ComputePassType passTy
     commandList->dispatch(dispatchSize.x, dispatchSize.y);
 }
 
-void PostProcess::Apply( nvrhi::ICommandList* commandList, ComputePassType passType, int pass, nvrhi::BufferHandle consts, nvrhi::BufferHandle miniConsts, nvrhi::ITexture* workTexture, RenderTargets & renderTargets, nvrhi::ITexture* sourceTexture, bool pingActive)
+void PostProcess::Apply( nvrhi::ICommandList* commandList, ComputePassType passType, int pass, nvrhi::BufferHandle consts, nvrhi::BufferHandle miniConsts, nvrhi::ITexture* workTexture, RenderTargets & renderTargets, nvrhi::ITexture* sourceTexture)
 {
     // commandList->beginMarker("PostProcessCS");
 
@@ -210,13 +210,13 @@ void PostProcess::Apply( nvrhi::ICommandList* commandList, ComputePassType passT
             nvrhi::BindingSetItem::Texture_SRV(5, (renderTargets.DenoiserOutValidation!=nullptr)?(renderTargets.DenoiserOutValidation):((nvrhi::TextureHandle)m_CommonPasses->m_WhiteTexture.Get())),
             nvrhi::BindingSetItem::Texture_SRV(6, renderTargets.DenoiserViewspaceZ),
             nvrhi::BindingSetItem::Texture_SRV(7, renderTargets.DenoiserDisocclusionThresholdMix),
-            nvrhi::BindingSetItem::StructuredBuffer_SRV(10, (pingActive)?(renderTargets.StablePlanesBuffer):(renderTargets.PrevStablePlanesBuffer)),
+            nvrhi::BindingSetItem::StructuredBuffer_SRV(10, renderTargets.StablePlanesBuffer),
             nvrhi::BindingSetItem::Sampler(0, (true) ? m_LinearSampler : m_PointSampler)
     	};
 
     nvrhi::BindingSetHandle bindingSet = m_BindingCache.GetOrCreateBindingSet(bindingSetDesc, m_BindingLayoutCS);
 
-    Apply(commandList, passType, consts, miniConsts, bindingSet, m_BindingLayoutCS, workTexture->getDesc().width, workTexture->getDesc().height, pingActive);
+    Apply(commandList, passType, consts, miniConsts, bindingSet, m_BindingLayoutCS, workTexture->getDesc().width, workTexture->getDesc().height);
 
     // commandList->endMarker();
 }

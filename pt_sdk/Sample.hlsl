@@ -31,6 +31,12 @@
 
 #define SER_USE_MANUAL_SORT_KEY 1 // use the SER reordering key that we generated in 'ComputeSubInstanceData'; otherwise use heuristic in NvReorderThread(hit, 0, 0) based on 'hit' properties
 
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES
+#define SER_USE_SORTING 0
+#else
+#define SER_USE_SORTING 1
+#endif
+
 #include "PathTracerBridgeDonut.hlsli"
 #include "PathTracer/PathTracer.hlsli"
 
@@ -43,7 +49,7 @@ AUXContext getAUXContext(uint2 pixelPos)
     ret.pixelPos = pixelPos;
     ret.pixelStorageIndex = PixelCoordToIndex(pixelPos, g_Const.ptConsts.imageWidth);
     ret.debug.Init( pixelPos, Bridge::getSampleIndex(), g_Const.debug, u_FeedbackBuffer, u_DebugLinesBuffer, u_DebugDeltaPathTree, u_DeltaPathSearchStack, u_DebugVizOutput );
-    ret.stablePlanes = StablePlanesContext::make(pixelPos, u_StablePlanesHeader, u_StablePlanesBuffer, u_PrevStablePlanesHeader, u_PrevStablePlanesBuffer, u_StableRadiance, u_SecondarySurfaceRadiance, g_Const.ptConsts);
+    ret.stablePlanes = StablePlanesContext::make(pixelPos, u_StablePlanesHeader, u_StablePlanesBuffer, u_StableRadiance, u_SecondarySurfaceRadiance, g_Const.ptConsts);
 
     return ret;
 }
@@ -53,11 +59,11 @@ AUXContext getAUXContext(const PathState path)
     return getAUXContext(PathIDToPixel(path.id));
 }
 
-#if STABLE_PLANES_MODE!=STABLE_PLANES_DISABLED
+#if PATH_TRACER_MODE!=PATH_TRACER_MODE_REFERENCE
 void firstHitFromBasePlane(inout PathState path, const uint basePlaneIndex, const AUXContext auxContext)
 {
     PackedHitInfo packedHitInfo; float3 rayDir; uint vertexIndex; uint SERSortKey; uint stableBranchID; float sceneLength; float3 thp; float3 motionVectors;
-    auxContext.stablePlanes.LoadStablePlane(auxContext.pixelPos, basePlaneIndex, false, vertexIndex, packedHitInfo, SERSortKey, stableBranchID, rayDir, sceneLength, thp, motionVectors);
+    auxContext.stablePlanes.LoadStablePlane(auxContext.pixelPos, basePlaneIndex, vertexIndex, packedHitInfo, SERSortKey, stableBranchID, rayDir, sceneLength, thp, motionVectors);
 
     // reconstruct ray; this is the ray we used to get to this hit, and Direction and rayTCurrent will not be identical due to compression
     RayDesc ray;
@@ -75,8 +81,8 @@ void firstHitFromBasePlane(inout PathState path, const uint basePlaneIndex, cons
     path.setStablePlaneIndex(basePlaneIndex);
     path.stableBranchID = stableBranchID;
     path.thp = thp;
-#if STABLE_PLANES_MODE==STABLE_PLANES_NOISY_PASS
-    const uint dominantSPIndex = auxContext.stablePlanes.LoadDominantIndex();
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_FILL_STABLE_PLANES
+    const uint dominantSPIndex = auxContext.stablePlanes.LoadDominantIndexCenter();
     path.setFlag(PathFlags::stablePlaneOnDominantBranch, dominantSPIndex == basePlaneIndex ); // dominant plane has been determined in _BUILD_PASS; see if it's basePlaneIndex and set flag
     path.setCounter(PackedCounters::BouncesFromStablePlane, 0);
     path.denoiserSampleHitTFromPlane = 0.0;
@@ -109,12 +115,14 @@ void firstHitFromBasePlane(inout PathState path, const uint basePlaneIndex, cons
             // HandleHitUbershader(...);
 
             PathPayload payload = PathPayload::pack(path);
+#if SER_USE_SORTING
             if (auxContext.ptConsts.enableShaderExecutionReordering)  // there could be cost to this branch, although we haven't measured anything significant, and on/off is convenient for testing
 #if SER_USE_MANUAL_SORT_KEY
                 NvReorderThread(SERSortKey, 16); 
 #else
                 NvReorderThread(hit, 0, 0);
 #endif
+#endif // SER_USE_SORTING
             NvInvokeHitObject(SceneBVH, hit, payload);
             path = PathPayload::unpack(payload, PACKED_HIT_INFO_ZERO, Bridge::getSampleIndex());  // init dummy hitinfo - it's not included in the payload to minimize register pressure
         }
@@ -162,12 +170,14 @@ void nextHit(inout PathState path, const AUXContext auxContext, uniform bool ski
         attrib.barycentrics = rayQuery.CommittedTriangleBarycentrics();
         NvMakeHitWithRecordIndex( rayQuery.CommittedInstanceContributionToHitGroupIndex()+rayQuery.CommittedGeometryIndex(), SceneBVH, rayQuery.CommittedInstanceIndex(), rayQuery.CommittedGeometryIndex(), rayQuery.CommittedPrimitiveIndex(), 0, ray, attrib, hit );
         PathPayload payload = PathPayload::pack(path);
+#if SER_USE_SORTING
         if (auxContext.ptConsts.enableShaderExecutionReordering)  // there could be cost to this branch, although we haven't measured anything significant, and on/off is convenient for testing
 #if SER_USE_MANUAL_SORT_KEY
             NvReorderThread(sortKey, 16);
 #else
             NvReorderThread(hit, 0, 0);
 #endif
+#endif // SER_USE_SORTING
         NvInvokeHitObject(SceneBVH, hit, payload);
         path = PathPayload::unpack(payload, PACKED_HIT_INFO_ZERO, Bridge::getSampleIndex());  // init dummy hitinfo - it's not included in the payload to minimize register pressure
     }
@@ -179,9 +189,9 @@ void nextHit(inout PathState path, const AUXContext auxContext, uniform bool ski
     path = PathPayload::unpack(payload, PACKED_HIT_INFO_ZERO, Bridge::getSampleIndex());  // init dummy hitinfo - it's not included in the payload to minimize register pressure
 #endif
 
-#if STABLE_PLANES_MODE==STABLE_PLANES_BUILD_PASS   // explore enqueued stable planes, if any
-    int nextPlaneToExplore;      // could be sped up since FindNextToExplore searches through all but we shouldn't explore current or previous, but in practice this happens only once at the end of each path
-    if (!path.isActive() && (nextPlaneToExplore=auxContext.stablePlanes.FindNextToExplore())!=-1 )
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES   // explore enqueued stable planes, if any
+    int nextPlaneToExplore;
+    if (!path.isActive() && (nextPlaneToExplore=auxContext.stablePlanes.FindNextToExplore(path.getStablePlaneIndex()+1))!=-1 )
     {
         float3 prevL = path.L;  // save non-noisy radiance captured so far
         PathPayload payload;
@@ -211,19 +221,19 @@ void RayGen()
     PathTracer::pathSetupPrimaryRay( path, Bridge::computeCameraRay( pixelPos ) );
     AUXContext auxContext = getAUXContext(pixelPos);
 
-#if STABLE_PLANES_MODE!=STABLE_PLANES_DISABLED
+#if PATH_TRACER_MODE!=PATH_TRACER_MODE_REFERENCE
     auxContext.stablePlanes.StartPathTracingPass();
 #endif
 
-#if STABLE_PLANES_MODE!=STABLE_PLANES_NOISY_PASS    // Reset on stable planes disabled (0) or stable planes generate (1)
+#if PATH_TRACER_MODE!=PATH_TRACER_MODE_FILL_STABLE_PLANES    // Reset on stable planes disabled (0) or stable planes generate (1)
     auxContext.debug.Reset();   // Setups per-pixel debugging - has to happen before any other debugging stuff in the frame
 #endif
 
-#if STABLE_PLANES_MODE==STABLE_PLANES_NOISY_PASS    // we're continuing from base stable plane (index 0) here to avoid unnecessary path tracing
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_FILL_STABLE_PLANES    // we're continuing from base stable plane (index 0) here to avoid unnecessary path tracing
     firstHitFromBasePlane(path, 0, auxContext);
 #endif
 
-#if STABLE_PLANES_MODE==1     // BUILD
+#if PATH_TRACER_MODE==1     // BUILD
     u_SecondarySurfacePositionNormal[pixelPos] = 0;
 #endif
 
@@ -231,11 +241,11 @@ void RayGen()
     while( path.isActive() )
         nextHit( path, auxContext, false );
 
-#if STABLE_PLANES_MODE==STABLE_PLANES_DISABLED
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_REFERENCE
     float3 pathRadiance = path.L;
-#elif STABLE_PLANES_MODE==STABLE_PLANES_BUILD_PASS
+#elif PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES
     float3 pathRadiance = auxContext.stablePlanes.CompletePathTracingBuild(path.L);
-#elif STABLE_PLANES_MODE==STABLE_PLANES_NOISY_PASS
+#elif PATH_TRACER_MODE==PATH_TRACER_MODE_FILL_STABLE_PLANES
     auxContext.stablePlanes.CommitDenoiserRadiance(path.getStablePlaneIndex(), path.denoiserSampleHitTFromPlane,
         path.denoiserDiffRadianceHitDist, path.denoiserSpecRadianceHitDist,
         path.secondaryL, path.hasFlag(PathFlags::stablePlaneBaseScatterDiff),
@@ -245,7 +255,7 @@ void RayGen()
     float3 pathRadiance = auxContext.stablePlanes.CompletePathTracingFill(g_Const.ptConsts.denoisingEnabled);
 #endif
 
-#if STABLE_PLANES_MODE==STABLE_PLANES_BUILD_PASS && ENABLE_DEBUG_DELTA_TREE_VIZUALISATION
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES && ENABLE_DEBUG_DELTA_TREE_VIZUALISATION
     DeltaTreeVizExplorePixel(auxContext);
     return;
 #endif
@@ -253,7 +263,6 @@ void RayGen()
     bool somethingWrong = false;
     somethingWrong |= any(isnan(pathRadiance)) || !all(isfinite(pathRadiance));
     somethingWrong |= any(isnan(path.thp)) || !all(isfinite(path.thp));
-    //somethingWrong |= all(path.thp<0.00001);
     [branch] if (somethingWrong)
     {
 #if 1 && ENABLE_DEBUG_VIZUALISATION
@@ -269,12 +278,11 @@ void RayGen()
         pathRadiance = 0; // sanitize
     }
 
-    float3 outputValue = pathRadiance;
-
-#if STABLE_PLANES_MODE!=STABLE_PLANES_BUILD_PASS
-     u_Output[pixelPos] = float4( outputValue, 1 );   // <- alpha 1 is important for screenshots
+#if PATH_TRACER_MODE!=PATH_TRACER_MODE_BUILD_STABLE_PLANES
+     u_Output[pixelPos] = float4( pathRadiance, 1 );   // <- alpha 1 is important for screenshots
 #endif
 
+//  debugging examples:
 //    if( auxContext.debug.IsDebugPixel() )
 //    {
 //        auxContext.debug.Print( 0, pathRadiance);
@@ -282,7 +290,6 @@ void RayGen()
 //        auxContext.debug.Print( 2, path.getCounter(PackedCounters::DiffuseBounces));
 //        auxContext.debug.Print( 3, path.getCounter(PackedCounters::RejectedHits));
 //    }
-
 //    if (all(pixelPos > uint2(400, 400)) && all(pixelPos < uint2(600, 600)))
 //        u_Output[pixelPos] = float4( g_Const.ptConsts.preExposedGrayLuminance.xxx, 1 ); 
 }
@@ -312,8 +319,8 @@ void DeltaTreeVizExplorePixel(const AUXContext auxContext)
             nextHit(deltaPathState, auxContext, true);
         }
         for (int i = 0; i < cStablePlaneCount; i++)
-            auxContext.debug.DeltaTreeStoreStablePlaneID( i, auxContext.stablePlanes.GetBranchID(i) );
-        auxContext.debug.DeltaTreeStoreDominantStablePlaneIndex( auxContext.stablePlanes.LoadDominantIndex() );
+            auxContext.debug.DeltaTreeStoreStablePlaneID( i, auxContext.stablePlanes.GetBranchIDCenter(i) );
+        auxContext.debug.DeltaTreeStoreDominantStablePlaneIndex( auxContext.stablePlanes.LoadDominantIndexCenter() );
     }
 }
 #endif
@@ -358,9 +365,13 @@ CLOSEST_HIT_VARIANT( 111, true,  true,  true );
 [shader("miss")]
 void Miss(inout PathPayload payload : SV_RayPayload)
 {
+#if USE_HIT_OBJECT_EXTENSION
+    // we inline misses in rgs, so this is a no-op.
+#else
     PathState path = PathPayload::unpack(payload, PACKED_HIT_INFO_ZERO, Bridge::getSampleIndex());
-    PathTracer::handleMiss(path, WorldRayOrigin(), WorldRayDirection(), RayTCurrent(), getAUXContext(PathIDToPixel(path.id)) );
-    payload = PathPayload::pack( path );
+    PathTracer::handleMiss(path, WorldRayOrigin(), WorldRayDirection(), RayTCurrent(), getAUXContext(PathIDToPixel(path.id)));
+    payload = PathPayload::pack(path);
+#endif
 }
 
 [shader("anyhit")]
@@ -368,85 +379,4 @@ void AnyHit(inout PathPayload payload, in BuiltInTriangleIntersectionAttributes 
 {
     if (!Bridge::AlphaTest(InstanceID(), InstanceIndex(), GeometryIndex(), PrimitiveIndex(), attrib.barycentrics/*, getAUXContext( PathIDToPixel(path.id) ).debug*/ ))
         IgnoreHit();
-}
-
-#if 0 // removed for simplicity (everything is inline), but leaving in as a reference
-[shader("miss")]
-void MissVisibility(inout VisibilityPayload visibilityPayload : SV_RayPayload)
-{
-    visibilityPayload.missed = 1;
-}
-[shader("closesthit")]
-void ClosestHitGeneric(inout PathPayload payload : SV_RayPayload, in BuiltInTriangleIntersectionAttributes attrib)
-{
-    uint sortKey = t_SubInstanceData[InstanceID()+GeometryIndex()].FlagsAndSortKey & 0xFFFF;
-    HandleHit( OptimizationHints::NoHints(sortKey), TriangleHit::make( InstanceIndex(), GeometryIndex(), PrimitiveIndex(), attrib.barycentrics ).pack(), payload); //hints.NoTextures, hints.NoTransmission, hints.OnlyTransmission, hints.OnlyDeltaLobes
-}
-#endif
-
-// TODO: merge this with RTXDI passes to avoid re-loading the surface
-[numthreads(NUM_COMPUTE_THREADS_PER_DIM, NUM_COMPUTE_THREADS_PER_DIM, 1)]
-void ApplyReSTIR( uint3 dispatchThreadID : SV_DispatchThreadID )
-{
-    const uint2 pixelPos = dispatchThreadID.xy;
-    AUXContext auxContext = getAUXContext(pixelPos);
-    if( auxContext.ptConsts.suppressPrimaryNEE || any(pixelPos >= uint2(g_Const.ptConsts.imageWidth, g_Const.ptConsts.imageHeight) ) )
-        return;
-
-    // Query ReSTIR sample from RTXDI
-    float4 dirValid;
-    float4 LiDistance;
-    Bridge::getRtxdiDirectionAndDistance(pixelPos, dirValid, LiDistance);
-    if (dirValid.w==0)
-        return; // sample isn't valid (i.e. failed visibility ray test) - nothing more to do here
-    PathLightSample ls = PathLightSample::make();
-    ls.dir = dirValid.xyz; 
-    ls.Li = LiDistance.xyz;
-    ls.distance = LiDistance.w;      
-
-    // Load shading surface
-    uint stablePlaneIndex = auxContext.stablePlanes.LoadDominantIndex();
-    PackedHitInfo packedHitInfo; float3 rayDir; uint vertexIndex; uint SERSortKey; uint stableBranchID; float sceneLength; float3 pathThp; float3 motionVectors;
-    auxContext.stablePlanes.LoadStablePlane(pixelPos, stablePlaneIndex, false, vertexIndex, packedHitInfo, SERSortKey, stableBranchID, rayDir, sceneLength, pathThp, motionVectors);
-    const HitInfo hit = HitInfo(packedHitInfo);
-    if( !(hit.isValid() && hit.getType() == HitType::Triangle) || vertexIndex > Bridge::getMaxBounceLimit() )
-        return; // nothing to do, empty surface - sky or etc; there should be no ReSTIR samples here either so in theory this could be removed if properly tested
-    RayCone rayCone = RayCone::make(0, g_Const.ptConsts.camera.pixelConeSpreadAngle).propagateDistance(sceneLength);
-    const SurfaceData bridgedData = Bridge::loadSurface(OptimizationHints::NoHints(), TriangleHit::make(packedHitInfo), rayDir, rayCone, Bridge::getPathTracerParams(), vertexIndex, auxContext.debug);
-    const ShadingData sd    = bridgedData.sd;
-    const ActiveBSDF bsdf   = bridgedData.bsdf;
-    BSDFProperties bsdfProperties = bsdf.getProperties(sd);
-
-    // This shouldn't be required for bsdf.eval, but bsdf.eval interface needs it
-    SampleGenerator sg = SampleGenerator::make(pixelPos, vertexIndex, Bridge::getSampleIndex());
-
-    // Apply sample shading
-#if PTSDK_DIFFUSE_SPECULAR_SPLIT
-    float3 bsdfThpDiff, bsdfThpSpec; 
-    bsdf.eval(sd, ls.dir, sg, bsdfThpDiff, bsdfThpSpec);
-    float3 bsdfThp = bsdfThpDiff + bsdfThpSpec;
-#else
-#error denoiser requires specular split currently but easy to switch back
-    float3 bsdfThp = bsdf.eval(sd, ls.dir, sg);
-#endif
-
-    // Compute final radiance reaching the camera (there's no firefly filter for ReSTIR here unfortunately)
-    const float3 diffuseRadiance  = bsdfThpDiff * ls.Li * pathThp;
-    const float3 specularRadiance = bsdfThpSpec * ls.Li * pathThp;
-    const float accSampleDistance = ls.distance;
-
-    // if denoising enabled, feed into denoiser...
-    if (g_Const.ptConsts.denoisingEnabled)
-    {
-        uint spAddress = auxContext.stablePlanes.PixelToAddress( pixelPos, stablePlaneIndex ); 
-        float4 currentDiff, currentSpec; 
-        UnpackTwoFp32ToFp16(auxContext.stablePlanes.StablePlanesUAV[spAddress].DenoiserPackedRadianceHitDist, currentDiff, currentSpec);
-        currentDiff.xyzw = StablePlaneCombineWithHitTCompensation(currentDiff, diffuseRadiance, accSampleDistance);
-        currentSpec.xyzw = StablePlaneCombineWithHitTCompensation(currentSpec, specularRadiance, accSampleDistance);
-        auxContext.stablePlanes.StablePlanesUAV[spAddress].DenoiserPackedRadianceHitDist = PackTwoFp32ToFp16(currentDiff, currentSpec);
-    }
-    else // ...otherwise just into output
-        u_Output[pixelPos].rgb += (diffuseRadiance+specularRadiance);
-
-    //auxContext.debug.DrawDebugViz( pixelPos, float4(pathThp, 1) );
 }

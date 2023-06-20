@@ -49,6 +49,12 @@ uint Hash32Combine( const uint seed, const uint value )
     return seed ^ (Hash32(value) + 0x9e3779b9 + (seed << 6) + (seed >> 2));       
 }
 
+// same as Hash32Combine but with additional Hash32 on the result
+uint Hash32CombineEx(const uint seed, const uint value)
+{
+    return Hash32(seed ^ (Hash32(value) + 0x9e3779b9 + (seed << 6) + (seed >> 2)));
+}
+
 /** Inline uniform random sample generator.
 
     This generator has only 32 bit state and sub-optimal statistical properties, however it's 'mostly fine' for up to millions of samples.
@@ -59,7 +65,7 @@ uint Hash32Combine( const uint seed, const uint value )
 struct StatelessUniformSampleGenerator
 {
     //uint sampleIndex;
-    //uint vertexSeed;
+    //uint baseSeed;
     //uint dimension;
     uint effectHash;
 
@@ -67,10 +73,9 @@ struct StatelessUniformSampleGenerator
     {
         StatelessUniformSampleGenerator ret;
         //ret.sampleIndex = sampleIndex;
-        uint vertexSeed = Hash32Combine( Hash32(vertexIndex+0x035F9F29), (pixelCoord.x << 16) | pixelCoord.y );
-        vertexSeed = Hash32Combine( vertexSeed, sampleIndex );
-        ret.effectHash = vertexSeed;
-        //ret.vertexSeed = vertexSeed;
+        ret.effectHash = Hash32Combine(Hash32(vertexIndex + 0x035F9F29), (pixelCoord.x << 16) | pixelCoord.y);
+        ret.effectHash = Hash32Combine(ret.effectHash, sampleIndex);
+        //ret.baseSeed = baseSeed;
         //ret.startEffect(0);
 
         return ret;
@@ -86,10 +91,8 @@ struct StatelessUniformSampleGenerator
     */
     uint next()
     {
-        uint ret = effectHash;
-        effectHash = Hash32(ret);
-        //dimension++;
-        return ret;
+        effectHash = Hash32(effectHash);
+        return effectHash;
     }
 };
 
