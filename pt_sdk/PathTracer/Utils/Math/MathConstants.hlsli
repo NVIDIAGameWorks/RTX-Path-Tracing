@@ -11,7 +11,7 @@
 #ifndef __MATH_CONSTANTS_HLSLI__ // using instead of "#pragma once" due to https://github.com/microsoft/DirectXShaderCompiler/issues/3943
 #define __MATH_CONSTANTS_HLSLI__
 
-#include "../../Config.hlsli"    
+#include "../../Config.h"    
 
 /** This file contains useful numeric constants for use on the GPU.
 

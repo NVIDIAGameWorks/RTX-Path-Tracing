@@ -8,8 +8,14 @@
 * license agreement from NVIDIA CORPORATION is strictly prohibited.
 */
 
-#ifndef __CONFIG_HLSLI__ // using instead of "#pragma once" due to https://github.com/microsoft/DirectXShaderCompiler/issues/3943
-#define __CONFIG_HLSLI__
+#ifndef __CONFIG_H__ // using instead of "#pragma once" due to https://github.com/microsoft/DirectXShaderCompiler/issues/3943
+#define __CONFIG_H__
+
+// ********************************************************************************************************************************************
+// ********************************************************************************************************************************************
+// This is a core configuration file for Path Tracing SDK and is included by all PTSDK files (c++ and shaders).
+// ********************************************************************************************************************************************
+// ********************************************************************************************************************************************
 
 #if !defined(__cplusplus) // not needed in the port so far
 #include "Utils/HostDeviceShared.hlsli"
@@ -43,15 +49,18 @@
 #define DEBUG_VIZ_MIP_COLORS                    false   // use to display mip-based gradient instead of base color !!! DISABLED IN THE LAST REFACTORING !!!
 
 // there's a significant cost to enabling these; #ifdef _DEBUG unfortunately doesn't work because it's never defined for shaders :(
-#define ENABLE_DEBUG_VIZUALISATION              1       // added cost is up to 5%
+#define ENABLE_DEBUG_VIZUALISATION              1       // added cost is over 5%, affects everything except debug lines
+#define ENABLE_DEBUG_LINES_VIZUALISATION        0       // separate switch for debug lines since they're rather costly - about 3% (requires ENABLE_DEBUG_VIZUALISATION)
 #define ENABLE_DEBUG_DELTA_TREE_VIZUALISATION   0       // added cost can be over 10%; requires ENABLE_DEBUG_VIZUALISATION to be enabled < !!!! currently disabled because it's buggy - needs a refactor
 #define ENABLE_DEBUG_RTXDI_VIZUALISATION        0       // added cost is ~5%; requires ENABLE_DEBUG_VIZUALISATION to be enabled
 
-#if ENABLE_DEBUG_VIZUALISATION == 0
+#if ENABLE_DEBUG_VIZUALISATION == 0                     // all of the below rely on ENABLE_DEBUG_VIZUALISATION
 #undef ENABLE_DEBUG_RTXDI_VIZUALISATION
 #undef ENABLE_DEBUG_DELTA_TREE_VIZUALISATION
+#undef ENABLE_DEBUG_LINES_VIZUALISATION
 #define ENABLE_DEBUG_DELTA_TREE_VIZUALISATION   0
 #define ENABLE_DEBUG_RTXDI_VIZUALISATION        0
+#define ENABLE_DEBUG_LINES_VIZUALISATION        0
 #endif
 
 #ifndef NON_PATH_TRACING_PASS
@@ -77,4 +86,11 @@ uint    PathIDFromPixel( uint2 pixel )  { return pixel.x << 16 | pixel.y; }
 
 #define  NUM_COMPUTE_THREADS_PER_DIM        8
 
-#endif // __CONFIG_HLSLI__
+// should be pow of 2 when using low discrepancy sampling or the result can be biased; it also must be a multiple of 256 due to compute shader hardcoding
+#define  ENVMAP_PRESAMPLED_COUNT            2048u           // 1024 is ok quality, 4096 is plenty enough but still fits into small enough memory block (32Kb), 2048u is good compromise
+
+#define  USE_PRECOMPUTED_SOBOL_BUFFER       0               // see NoiseAndSequences.hlsli - still experimental, faster but lower quality and more RAM - not a clear win
+
+#define  EXPERIMENTAL_SUPERSAMPLE_LOOP_IN_SHADER    0       // note: this is not fully compatible with environment map presampling (ENVMAP_IMPORTANCE_SAMPLING_TYPE==1) because normally this relies on presampling before each pass
+
+#endif // __CONFIG_H__

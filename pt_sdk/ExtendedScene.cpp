@@ -19,6 +19,8 @@
 using namespace donut::math;
 #include <donut/shaders/light_cb.h>
 
+#include "LocalConfig.h"
+
 using namespace donut;
 using namespace donut::math;
 using namespace donut::engine;
@@ -137,16 +139,7 @@ bool ExtendedScene::LoadWithExecutor(const std::filesystem::path& jsonFileName, 
     for( auto it : materials )
     {
         Material & mat = *it;
-#if 0 // convert transmissive to white opaque
-        if (mat.domain == MaterialDomain::Transmissive || mat.domain == MaterialDomain::TransmissiveAlphaBlended || mat.domain == MaterialDomain::TransmissiveAlphaTested)
-        {
-            mat.baseOrDiffuseColor = float3(1,1,1);
-            mat.enableBaseOrDiffuseTexture = false;
-        }
-        if (mat.domain == MaterialDomain::Transmissive) mat.domain = MaterialDomain::Opaque;
-        if (mat.domain == MaterialDomain::TransmissiveAlphaBlended) mat.domain = MaterialDomain::AlphaBlended;
-        if (mat.domain == MaterialDomain::TransmissiveAlphaTested)  mat.domain = MaterialDomain::AlphaTested;
-#endif
+        LocalConfig::PostMaterialLoad(mat);
     }
 #endif
 

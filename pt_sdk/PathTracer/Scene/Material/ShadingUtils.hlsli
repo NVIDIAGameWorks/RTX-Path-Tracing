@@ -62,7 +62,7 @@ float getMetallic(float3 diffuse, float3 spec)
     \param[in] encodedNormal Encoded normal loaded from normal map.
     \param[in] tangent Tangent in world space (xyz) and bitangent sign (w). The tangent is *only* valid when w != 0.
 */
-void applyNormalMap(inout ShadingData sd, const NormalMapType type, const float3 encodedNormal, const float4 tangentW)
+void applyNormalMap(inout ShadingData shadingData, const NormalMapType type, const float3 encodedNormal, const float4 tangentW)
 {
     float3 mapN = float3(0,0,0);
     switch (type)
@@ -82,9 +82,9 @@ void applyNormalMap(inout ShadingData sd, const NormalMapType type, const float3
     // If it occurs we should foremost fix the asset, or if problems persist add a check here.
 
     // Apply the transformation.
-    sd.N = normalize(sd.T * mapN.x + sd.B * mapN.y + sd.N * mapN.z);
-    sd.T = normalize(tangentW.xyz - sd.N * dot(tangentW.xyz, sd.N));
-    sd.B = cross(sd.N, sd.T) * tangentW.w;
+    shadingData.N = normalize(shadingData.T * mapN.x + shadingData.B * mapN.y + shadingData.N * mapN.z);
+    shadingData.T = normalize(tangentW.xyz - shadingData.N * dot(tangentW.xyz, shadingData.N));
+    shadingData.B = cross(shadingData.N, shadingData.T) * tangentW.w;
 }
 
 /** Computes an orthonormal tangent space based on the normal and given tangent.
@@ -92,7 +92,7 @@ void applyNormalMap(inout ShadingData sd, const NormalMapType type, const float3
     \param[in] tangent Interpolated tangent in world space (xyz) and bitangent sign (w). The tangent is *only* valid when w is != 0.
     \return True if a valid tangent space was computed based on the supplied tangent.
 */
-bool computeTangentSpace(inout ShadingData sd, const float4 tangentW)
+bool computeTangentSpace(inout ShadingData shadingData, const float4 tangentW)
 {
     // Check that tangent space exists and can be safely orthonormalized.
     // Otherwise invent a tanget frame based on the normal.
@@ -102,20 +102,20 @@ bool computeTangentSpace(inout ShadingData sd, const float4 tangentW)
     //  - It is not parallel to the normal. This can occur due to normal mapping or bad assets.
     //  - It does not have NaNs. These will propagate and trigger the fallback.
 
-    float NdotT = dot(tangentW.xyz, sd.N);
+    float NdotT = dot(tangentW.xyz, shadingData.N);
     bool nonParallel = abs(NdotT) < 0.9999f;
     bool nonZero = dot(tangentW.xyz, tangentW.xyz) > 0.f;
 
     bool valid = tangentW.w != 0.f && nonZero && nonParallel;
     if (valid)
     {
-        sd.T = normalize(tangentW.xyz - sd.N * NdotT);
-        sd.B = cross(sd.N, sd.T) * tangentW.w;
+        shadingData.T = normalize(tangentW.xyz - shadingData.N * NdotT);
+        shadingData.B = cross(shadingData.N, shadingData.T) * tangentW.w;
     }
     else
     {
-        sd.T = perp_stark(sd.N);
-        sd.B = cross(sd.N, sd.T);
+        shadingData.T = perp_stark(shadingData.N);
+        shadingData.B = cross(shadingData.N, shadingData.T);
     }
 
     return valid;
@@ -124,10 +124,10 @@ bool computeTangentSpace(inout ShadingData sd, const float4 tangentW)
 /** Helper function to adjust the shading normal to reduce black pixels due to back-facing view direction.
     Note: This breaks the reciprocity of the BSDF!
 */
-void adjustShadingNormal(inout ShadingData sd, VertexData v)
+void adjustShadingNormal(inout ShadingData shadingData, VertexData v)
 {
-    float3 Ng = sd.frontFacing ? v.faceNormalW : -v.faceNormalW;
-    float3 Ns = sd.N;
+    float3 Ng = shadingData.frontFacing ? v.faceNormalW : -v.faceNormalW;
+    float3 Ns = shadingData.N;
 
 #ifdef FALCOR_INTERNAL
     // Algorithm from Appendix A.3 of https://arxiv.org/abs/1705.01263
@@ -137,23 +137,23 @@ void adjustShadingNormal(inout ShadingData sd, VertexData v)
     // but it does not guarantee that all directions are valid in the general case.
 
     // Specular reflection in shading normal
-    float3 R = reflect(-sd.V, Ns);
+    float3 R = reflect(-shadingData.V, Ns);
     float a = dot(Ng, R);
     if (a < 0) // Perturb normal
     {
         float b = max(0.001, dot(Ns, Ng));
-        sd.N = normalize(sd.V + normalize(R - Ns * a / b));
+        shadingData.N = normalize(shadingData.V + normalize(R - Ns * a / b));
 #else
     // Blend the shading normal towards the geometric normal at grazing angles.
     // This is to avoid the view vector from becoming back-facing.
     const float kCosThetaThreshold = 0.1f;
-    float cosTheta = dot(sd.V, Ns);
+    float cosTheta = dot(shadingData.V, Ns);
     if (cosTheta <= kCosThetaThreshold)
     {
         float t = saturate(cosTheta * (1.f / kCosThetaThreshold));
-        sd.N = normalize(lerp(Ng, Ns, t));
+        shadingData.N = normalize(lerp(Ng, Ns, t));
 #endif
-        computeTangentSpace(sd, v.tangentW);
+        computeTangentSpace(shadingData, v.tangentW);
     }
 }
 

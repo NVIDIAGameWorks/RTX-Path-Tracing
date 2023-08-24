@@ -34,12 +34,10 @@ void main( uint2 dispatchThreadID : SV_DispatchThreadID )
 
     u_MotionVectors[pixelPos]   = float4(motionVectors, 0);
 
-    uint sampleIndex = Bridge::getSampleIndex();
-
     // Useful for debugging
-    // DebugContext debug; debug.Init( pixelPos, sampleIndex, g_Const.debug, u_FeedbackBuffer, u_DebugLinesBuffer, u_DebugDeltaPathTree, u_DeltaPathSearchStack, u_DebugVizOutput );
+    // DebugContext debug; debug.Init( pixelPos, 0, g_Const.debug, u_FeedbackBuffer, u_DebugLinesBuffer, u_DebugDeltaPathTree, u_DeltaPathSearchStack, u_DebugVizOutput );
 
-    const Ray cameraRay = Bridge::computeCameraRay( pixelPos );
+    const Ray cameraRay = Bridge::computeCameraRay( pixelPos, 0 );
     const HitInfo hit = HitInfo(packedHitInfo);
     bool hitSurface = hit.isValid() && hit.getType() == HitType::Triangle;
 
@@ -54,7 +52,7 @@ void main( uint2 dispatchThreadID : SV_DispatchThreadID )
     if (hitSurface)
     {
         float3 virtualWorldPos = cameraRay.origin + cameraRay.dir * sceneLength;
-        float4 clipPos = mul(float4(/*bridgedData.sd.posW*/virtualWorldPos, 1), g_Const.view.matWorldToClip);
+        float4 clipPos = mul(float4(/*bridgedData.shadingData.posW*/virtualWorldPos, 1), g_Const.view.matWorldToClip);
         u_Depth[pixelPos] = clipPos.z / clipPos.w;
         u_Throughput[pixelPos] = Pack_R11G11B10_FLOAT(saturate(pathThp));
     }

@@ -238,7 +238,7 @@ void main(
     {
 #if 0
         historyClampRelax = t_HistoryClampRelaxMask[outputPixelPosition];
-#else // Simple 4-tap 16ish-pixel blur
+#else // Simple 4-tap 16ish-pixel blur; historyClampRelax is 0 where there's no 'relax' and 1 when there's 'full relax'
         float2 centerUV = (float2(outputPixelPosition.xy) + 0.5) * g_TemporalAA.outputTextureSizeInv;
         float2 offset = g_TemporalAA.outputTextureSizeInv * 0.4; // hand tuned filter width for best effect
         historyClampRelax =saturate((t_HistoryClampRelaxMask.SampleLevel(s_Sampler, centerUV + offset * float2(-1,-1), 0)
@@ -247,9 +247,9 @@ void main(
                            +t_HistoryClampRelaxMask.SampleLevel(s_Sampler, centerUV + offset * float2(+1,+1), 0)) * 0.4); // hand tuned multiplier
 #endif
     }
-    // Adapt clamping to TAA local factors (hand tuned heuristics)
-    clampingFactor += historyClampRelax * 10.0;
-    newFrameWeight /= (historyClampRelax*1.5+1);
+    // Slow convergence speed to TAA local factors (hand tuned heuristics)
+    clampingFactor *= (1.0+historyClampRelax*1.5);  // extend the clamp range
+    newFrameWeight /= (1.0+historyClampRelax*0.5);  // reduce the new sample weight
 
     float2 longestMV = s_MotionVectors[longestMVPos.y][longestMVPos.x];
 

@@ -11,7 +11,7 @@
 #ifndef __SHADER_DEBUG_HLSLI__ // using instead of "#pragma once" due to https://github.com/microsoft/DirectXShaderCompiler/issues/3943
 #define __SHADER_DEBUG_HLSLI__
 
-#include "Config.hlsli"
+#include "Config.h"
 
 #include "PathPayload.hlsli"
 #include "StablePlanes.hlsli"
@@ -52,7 +52,6 @@ enum class DebugViewType : int
     FirstHitShadingTangent,
     FirstHitShadingBitangent,
     FirstHitFrontFacing,
-    FirstHitDoubleSided,
     FirstHitThinSurface,
     FirstHitShaderPermutation,
     FirstHitDiffuse,
@@ -71,6 +70,7 @@ enum class DebugViewType : int
 
     ReSTIRDIInitialOutput,
     ReSTIRDIFinalOutput,
+    ReGIRIndirectOutput,
 
     MaxCount
 };
@@ -175,7 +175,9 @@ struct DebugContext
 {
 #if ENABLE_DEBUG_VIZUALISATION
     RWStructuredBuffer<DebugFeedbackStruct> feedbackBufferUAV;
+#if ENABLE_DEBUG_LINES_VIZUALISATION
     RWStructuredBuffer<DebugLineStruct>     debugLinesBufferUAV;
+#endif
     RWStructuredBuffer<DeltaTreeVizPathVertex> deltaPathTreeUAV;
     RWStructuredBuffer<PathPayload>         deltaPathSearchStackUAV;
     RWTexture2D<float4>                     debugVizOutput;
@@ -183,18 +185,18 @@ struct DebugContext
 
     DebugConstants                          constants;
     uint2                                   pixelPos;
-    uint                                    sampleIndex;
     bool                                    isDebugPixel;
 
-    void Init(const uint2 _pixelPos, const uint _sampleIndex, const DebugConstants _constants, uniform RWStructuredBuffer<DebugFeedbackStruct> _feedbackBufferUAV, uniform RWStructuredBuffer<DebugLineStruct> _debugLinesBufferUAV, RWStructuredBuffer<DeltaTreeVizPathVertex> _deltaPathTreeUAV, RWStructuredBuffer<PathPayload> _deltaPathSearchStackUAV, RWTexture2D<float4> _debugVizOutput)
+    void Init(const uint2 _pixelPos, const DebugConstants _constants, uniform RWStructuredBuffer<DebugFeedbackStruct> _feedbackBufferUAV, uniform RWStructuredBuffer<DebugLineStruct> _debugLinesBufferUAV, RWStructuredBuffer<DeltaTreeVizPathVertex> _deltaPathTreeUAV, RWStructuredBuffer<PathPayload> _deltaPathSearchStackUAV, RWTexture2D<float4> _debugVizOutput)
     {
         constants           = _constants;
         pixelPos            = _pixelPos;
-        sampleIndex         = _sampleIndex;
         isDebugPixel        = all( pixelPos == uint2(constants.pickX, constants.pickY) );
 #if ENABLE_DEBUG_VIZUALISATION
         feedbackBufferUAV   = _feedbackBufferUAV;
+#if ENABLE_DEBUG_LINES_VIZUALISATION
         debugLinesBufferUAV = _debugLinesBufferUAV;
+#endif
         deltaPathTreeUAV    = _deltaPathTreeUAV;
         debugVizOutput      = _debugVizOutput;
         deltaPathSearchStackUAV = _deltaPathSearchStackUAV;
@@ -211,10 +213,11 @@ struct DebugContext
 
     bool IsDebugPixel() { return isDebugPixel; }
 
+    // Returns 0 when debug lines are disabled
     float LineScale()   { return constants.debugLineScale; }
 
     // should call this before fist used in frame
-    void Reset()
+    void Reset(uint sampleIndex)
     {
 #if ENABLE_DEBUG_VIZUALISATION
         if (isDebugPixel)
@@ -231,19 +234,22 @@ struct DebugContext
 
     void DrawLine( float3 start, float3 stop, float4 col1, float4 col2 )
     {
-#if ENABLE_DEBUG_VIZUALISATION
-        uint lineVertexCount;
-        InterlockedAdd( feedbackBufferUAV[0].lineVertexCount, 2, lineVertexCount );
-	    if ( (lineVertexCount + 1) < MAX_DEBUG_LINES )
-	    {
-		    debugLinesBufferUAV[lineVertexCount].pos = float4(start, 1);
-		    debugLinesBufferUAV[lineVertexCount].col = col1;
-		    debugLinesBufferUAV[lineVertexCount + 1].pos = float4(stop, 1);
-		    debugLinesBufferUAV[lineVertexCount + 1].col = col2;
-	    }
-        else
-            InterlockedAdd( feedbackBufferUAV[0].lineVertexCount, -2 );
+        if ( LineScale()!=0 )   // early out when only debug lines (but not other debugging viz) disabled at runtime
+        {
+#if ENABLE_DEBUG_VIZUALISATION && ENABLE_DEBUG_LINES_VIZUALISATION
+            uint lineVertexCount;
+            InterlockedAdd(feedbackBufferUAV[0].lineVertexCount, 2, lineVertexCount);
+            if ((lineVertexCount + 1) < MAX_DEBUG_LINES)
+            {
+                debugLinesBufferUAV[lineVertexCount].pos = float4(start, 1);
+                debugLinesBufferUAV[lineVertexCount].col = col1;
+                debugLinesBufferUAV[lineVertexCount + 1].pos = float4(stop, 1);
+                debugLinesBufferUAV[lineVertexCount + 1].col = col2;
+            }
+            else
+                InterlockedAdd(feedbackBufferUAV[0].lineVertexCount, -2);
 #endif
+        }
     }
 
     void DrawLine( float3 start, float3 stop, float3 col1, float3 col2 )

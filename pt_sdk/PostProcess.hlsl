@@ -38,10 +38,8 @@ void main( uint3 dispatchThreadID : SV_DispatchThreadID )
     // u_DebugVizOutput[pixelPos] = float4(1,0,1,1);
     // return;
 
-    uint sampleIndex = Bridge::getSampleIndex();
-    DebugContext debug; debug.Init( pixelPos, sampleIndex, g_Const.debug, u_FeedbackBuffer, u_DebugLinesBuffer, u_DebugDeltaPathTree, u_DeltaPathSearchStack, u_DebugVizOutput );
-    PathState path = PathTracer::emptyPathInitialize( pixelPos, sampleIndex, g_Const.ptConsts.camera.pixelConeSpreadAngle );
-    const Ray cameraRay = Bridge::computeCameraRay( pixelPos );
+    DebugContext debug; debug.Init( pixelPos, g_Const.debug, u_FeedbackBuffer, u_DebugLinesBuffer, u_DebugDeltaPathTree, u_DeltaPathSearchStack, u_DebugVizOutput );
+    const Ray cameraRay = Bridge::computeCameraRay( pixelPos, 0 );
     StablePlanesContext stablePlanes = StablePlanesContext::make(pixelPos, u_StablePlanesHeader, u_StablePlanesBuffer, u_StableRadiance, u_SecondarySurfaceRadiance, g_Const.ptConsts);
 
 #if ENABLE_DEBUG_VIZUALISATION
@@ -93,17 +91,18 @@ float ComputeDisocclusionRelaxation(const StablePlanesContext stablePlanes, cons
     return saturate( (disocclusionRelax-0.00002) * 25 );
 }
 
-void NRDProbabilisticSamplingClamp( inout float4 radianceHitT, const float rangeK )
+void NRDRadianceClamp( inout float4 radianceHitT, const float rangeK )
 {
     const float kClampMin = g_Const.ptConsts.preExposedGrayLuminance/rangeK;
-    const float kClampMax = g_Const.ptConsts.preExposedGrayLuminance*rangeK;
+    const float kClampMax = min( 255.0, g_Const.ptConsts.preExposedGrayLuminance*rangeK );  // using absolute max of 255 due to NRD internal overflow when using FP16 to store luminance squared
 
     const float lum = luminance( radianceHitT.xyz );
+    //if (lum < kClampMin)
+    //    radianceHitT.xyzw = 0.0.xxxx;
+    //else
     if (lum > kClampMax)
         radianceHitT.xyz *= kClampMax / lum;
 }
-
-
 
 [numthreads(NUM_COMPUTE_THREADS_PER_DIM, NUM_COMPUTE_THREADS_PER_DIM, 1)]
 void main( uint3 dispatchThreadID : SV_DispatchThreadID )
@@ -114,10 +113,8 @@ void main( uint3 dispatchThreadID : SV_DispatchThreadID )
     if( any(pixelPos >= uint2(g_Const.ptConsts.imageWidth, g_Const.ptConsts.imageHeight) ) )
         return;
 
-    uint sampleIndex = Bridge::getSampleIndex();
-    DebugContext debug; debug.Init( pixelPos, sampleIndex, g_Const.debug, u_FeedbackBuffer, u_DebugLinesBuffer, u_DebugDeltaPathTree, u_DeltaPathSearchStack, u_DebugVizOutput );
-    PathState path = PathTracer::emptyPathInitialize( pixelPos, sampleIndex, g_Const.ptConsts.camera.pixelConeSpreadAngle );
-    const Ray cameraRay = Bridge::computeCameraRay( pixelPos );
+    DebugContext debug; debug.Init( pixelPos, g_Const.debug, u_FeedbackBuffer, u_DebugLinesBuffer, u_DebugDeltaPathTree, u_DeltaPathSearchStack, u_DebugVizOutput );
+    const Ray cameraRay = Bridge::computeCameraRay( pixelPos, 0 );
     StablePlanesContext stablePlanes = StablePlanesContext::make(pixelPos, u_StablePlanesHeader, u_StablePlanesBuffer, u_StableRadiance, u_SecondarySurfaceRadiance, g_Const.ptConsts);
 
     bool hasSurface = false;
@@ -136,7 +133,7 @@ void main( uint3 dispatchThreadID : SV_DispatchThreadID )
             //diffBSDFEstimate = 1.xxx; specBSDFEstimate = 1.xxx;
 
             float3 virtualWorldPos = cameraRay.origin + cameraRay.dir * length(sp.RayDirSceneLength);
-            float4 viewPos = mul(float4(/*bridgedData.sd.posW*/virtualWorldPos, 1), g_Const.view.matWorldToView);
+            float4 viewPos = mul(float4(/*bridgedData.shadingData.posW*/virtualWorldPos, 1), g_Const.view.matWorldToView);
             float virtualViewspaceZ = viewPos.z;
 
             float3 thp; float3 motionVectors;
@@ -218,10 +215,10 @@ void main( uint3 dispatchThreadID : SV_DispatchThreadID )
 
             u_DenoiserNormalRoughness[pixelPos]     = NRD_FrontEnd_PackNormalAndRoughness( sp.DenoiserNormalRoughness.xyz, finalRoughness );
 
-            // When using probabilistic sampling and HitDistanceReconstructionMode::AREA_xXxwe have to clamp the inputs to be 
-            // within sensible range.
-            NRDProbabilisticSamplingClamp( denoiserDiffRadianceHitDist, g_Const.ptConsts.denoiserRadianceClampK*16 );
-            NRDProbabilisticSamplingClamp( denoiserSpecRadianceHitDist, lerp(g_Const.ptConsts.denoiserRadianceClampK, g_Const.ptConsts.denoiserRadianceClampK*16, finalRoughness) );
+            // Clamp the inputs to be within sensible range.
+            NRDRadianceClamp( denoiserDiffRadianceHitDist, g_Const.ptConsts.denoiserRadianceClampK*16 );
+            NRDRadianceClamp( denoiserSpecRadianceHitDist, g_Const.ptConsts.denoiserRadianceClampK*16 );
+
     #if USE_RELAX
             u_DenoiserDiffRadianceHitDist[pixelPos] = RELAX_FrontEnd_PackRadianceAndHitDist( denoiserDiffRadianceHitDist.xyz, denoiserDiffRadianceHitDist.w );
             u_DenoiserSpecRadianceHitDist[pixelPos] = RELAX_FrontEnd_PackRadianceAndHitDist( denoiserSpecRadianceHitDist.xyz, denoiserSpecRadianceHitDist.w );
@@ -280,7 +277,7 @@ StructuredBuffer<StablePlane> t_StablePlanesBuffer              : register(t10);
 [numthreads(NUM_COMPUTE_THREADS_PER_DIM, NUM_COMPUTE_THREADS_PER_DIM, 1)]
 void main( uint3 dispatchThreadID : SV_DispatchThreadID )
 {
-    const uint stablePlaneIndex = g_MiniConst.params[0];
+    const uint stablePlaneIndex = g_MiniConst.params.x;
 
     uint2 pixelPos = dispatchThreadID.xy;
     if (any(pixelPos >= uint2(g_Const.ptConsts.imageWidth, g_Const.ptConsts.imageHeight) ))

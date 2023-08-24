@@ -13,14 +13,19 @@
 
 #include "PathTracer/PathTracerBridge.hlsli"
 
-PathTracerParams Bridge::getPathTracerParams()
-{
-    return PathTracerParams::make( float2(0, 0) );
-}
-
-uint Bridge::getSampleIndex()
+uint Bridge::getSampleBaseIndex()
 {
     return 0;
+}
+
+uint Bridge::getSubSampleCount()
+{
+    return 1;
+}
+
+float Bridge::getNoisyRadianceAttenuation()
+{
+    return 1;
 }
 
 uint Bridge::getMaxBounceLimit()
@@ -33,21 +38,21 @@ uint Bridge::getMaxDiffuseBounceLimit()
     return 1;
 }
 
-Ray Bridge::computeCameraRay(const uint2 pixelPos)
+Ray Bridge::computeCameraRay(const uint2 pixelPos, const uint subSampleIndex)
 {
     Ray ray; 
     ray.origin = float3(0,0,0);
-    ray.dir = float3(1, 0, 0);
+    ray.dir = float3(1,0,0);
     return ray;
 }
 
-ActiveTextureSampler Bridge::createTextureSampler(const RayCone rayCone, const float3 rayDir, float coneTexLODValue, float3 normalW, bool isPrimaryHit, bool isTriangleHit, const PathTracerParams params)
+ActiveTextureSampler Bridge::createTextureSampler(const RayCone rayCone, const float3 rayDir, float coneTexLODValue, float3 normalW, bool isPrimaryHit, bool isTriangleHit, float texLODBias)
 {
 #if ACTIVE_LOD_TEXTURE_SAMPLER == LOD_TEXTURE_SAMPLER_EXPLICIT
-    return ExplicitLodTextureSampler::make(params.texLODBias);
+    return ExplicitLodTextureSampler::make(texLODBias);
 #elif ACTIVE_LOD_TEXTURE_SAMPLER == LOD_TEXTURE_SAMPLER_RAY_CONES
     float lambda = rayCone.computeLOD(coneTexLODValue, rayDir, normalW, true);
-    lambda += params.texLODBias;
+    lambda += texLODBias;
     return ExplicitRayConesLodTextureSampler::make(lambda);
 #endif
 }
@@ -58,12 +63,12 @@ void Bridge::loadSurfacePosNormOnly(out float3 posW, out float3 faceN, const Tri
     faceN = 0.xxx;
 }
 
-SurfaceData Bridge::loadSurface(const uniform OptimizationHints optimizationHints, const TriangleHit triangleHit, const float3 rayDir, const RayCone rayCone, const PathTracerParams params, const int pathVertexIndex, DebugContext debug)
+PathTracer::SurfaceData Bridge::loadSurface(const uniform PathTracer::OptimizationHints optimizationHints, const TriangleHit triangleHit, const float3 rayDir, const RayCone rayCone, const int pathVertexIndex, DebugContext debug)
 {
-    return SurfaceData::make();
+    return PathTracer::SurfaceData::make();
 }
 
-void Bridge::updateOutsideIoR(inout SurfaceData surfaceData, float outsideIoR)
+void Bridge::updateOutsideIoR(inout PathTracer::SurfaceData surfaceData, float outsideIoR)
 {
 }
 
@@ -86,11 +91,11 @@ uint Bridge::getAnalyticLightCount()
     return 1;
 }
 
-bool Bridge::sampleAnalyticLight(const float3 shadingPosW, uint lightIndex, inout SampleGenerator sg, out AnalyticLightSample ls)
+bool Bridge::sampleAnalyticLight(const float3 shadingPosW, uint lightIndex, inout SampleGenerator sampleGenerator, out AnalyticLightSample ls)
 {
     AnalyticLightData light = AnalyticLightData::make();
-    light.posW              = float3(0, 0, 0);
-    light.dirW              = float3(0, 1, 0);
+    light.posW              = float3(0,0,0);
+    light.dirW              = float3(0,1,0);
     light.intensity         = 1.f;
     light.type              = (uint)AnalyticLightType::Point;
     light.openingAngle      = 0.1f;
@@ -124,7 +129,7 @@ bool Bridge::traceVisibilityRay(RayDesc ray, const RayCone rayCone, const int pa
     return false;
 }
 
-void Bridge::traceScatterRay(const PathState path, inout RayDesc ray, inout RayQuery<RAY_FLAG_NONE> rayQuery, inout PackedHitInfo packedHitInfo, inout int sortKey, DebugContext debug)
+void Bridge::traceScatterRay(const PathState path, inout RayDesc ray, inout RayQuery<RAY_FLAG_NONE> rayQuery, inout PackedHitInfo packedHitInfo, inout uint SERSortKey, DebugContext debug)
 {
 }
 
@@ -147,15 +152,23 @@ float Bridge::EnvMap::EvalPdf(float3 dir)
     return 0;
 }
 
-bool Bridge::EnvMap::Sample(const float2 rnd, out EnvMapSample result)
+EnvMapSample Bridge::EnvMap::Sample(const float2 rnd)
 {
     EnvMapSample s;
     s.dir = 0;
     s.pdf = 0;
     s.Le = 0;
-
-    result = s;
-    return false;
+    return s;
 }
+
+EnvMapSample Bridge::EnvMap::SamplePresampled(const float rnd)
+{
+    EnvMapSample s;
+    s.dir = 0;
+    s.pdf = 0;
+    s.Le = 0;
+    return s;
+}
+
 
 #endif // __BRIDGE_NULL_HLSLI__

@@ -15,37 +15,23 @@ namespace NrdConfig {
     nrd::RelaxDiffuseSpecularSettings getDefaultRELAXSettings() {
 
         nrd::RelaxDiffuseSpecularSettings settings;
-        settings.enableAntiFirefly = true;
-        settings.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::AREA_3X3;
+        
+         settings.enableAntiFirefly = true;
 
-        settings.historyFixFrameNum = 4;
-        settings.spatialVarianceEstimationHistoryThreshold = 4;
-
-        settings.enableReprojectionTestSkippingWithoutMotion = false;
-
+        settings.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::OFF;
         // (pixels) - pre-accumulation spatial reuse pass blur radius (0 = disabled, must be used in case of probabilistic sampling) <- we're using probabilistic sampling
-        settings.diffusePrepassBlurRadius = 0.0f; 
-        settings.specularPrepassBlurRadius = 0.0f;
+        settings.diffusePrepassBlurRadius = 0.0f;
+        settings.specularPrepassBlurRadius = 0.0f;  // <- using prepass blur causes more issues than it solves
 
-        // diffuse
-        settings.diffuseMaxFastAccumulatedFrameNum = 4;
-        settings.diffusePhiLuminance = 0.5f;
+        settings.atrousIterationNum = 5; // 5 is default; 4 gives better shadows but more boiling, 6 gives less boiling but loss in contact shadows
 
-        // specular
-        settings.specularMaxFastAccumulatedFrameNum = 6;
-        settings.specularPhiLuminance = 0.35f;
-        settings.specularLobeAngleSlack = 0.15f;
-
-        settings.confidenceDrivenLuminanceEdgeStoppingRelaxation = 0.5f;
-        settings.roughnessEdgeStoppingRelaxation = 0.3f;
-        settings.specularLobeAngleFraction = 0.93f;
-
-        settings.atrousIterationNum = 5;
-
-        settings.diffuseMaxAccumulatedFrameNum = 60;
-        settings.specularMaxAccumulatedFrameNum = 60;
+        settings.specularLobeAngleFraction = 0.65f;
+        settings.specularLobeAngleSlack = 0.35f;         // good to hide noisy secondary bounces
 
         settings.depthThreshold = 0.004f;
+
+        settings.diffuseMaxAccumulatedFrameNum = 50;
+        settings.specularMaxAccumulatedFrameNum = 50;
 
         return settings;
     }
@@ -55,11 +41,11 @@ namespace NrdConfig {
         nrd::ReblurSettings settings;
         settings.enableAntiFirefly = true;
         settings.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::AREA_5X5;
-        settings.maxAccumulatedFrameNum = 60;
+        settings.maxAccumulatedFrameNum = 50;
 
-        // (pixels) - pre-accumulation spatial reuse pass blur radius (0 = disabled, must be used in case of probabilistic sampling) <- we're using probabilistic sampling
-        settings.diffusePrepassBlurRadius = 0.0f;
-        settings.specularPrepassBlurRadius = 0.0f;
+        // reducing prepass blurs to reduce loss of sharp shadows
+        settings.diffusePrepassBlurRadius = 15.0f;
+        settings.specularPrepassBlurRadius = 40.0f;
 
         return settings;
     }

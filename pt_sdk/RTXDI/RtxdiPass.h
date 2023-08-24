@@ -61,7 +61,6 @@ struct RtxdiUserSettings
 	bool enablePermutationSampling = false;
 	bool visualizeRegirCells = false;
 
-	int numPrimaryRegirSamples = 8;
 	int numPrimaryLocalLightSamples = 8;
 	int numPrimaryBrdfSamples = 1;
 	int numPrimaryInfiniteLightSamples = 1;
@@ -76,10 +75,13 @@ struct RtxdiUserSettings
 	float temporalDepthThreshold = 0.1f;
 	float temporalNormalThreshold = 0.5f;
 	float boilingFilterStrength = 0.2f;
-	uint32_t numRegirBuildSamples = 8;
-	bool discountNaiveSamples = true;
+	bool discountNaiveSamples = true;	
+	int numRegirBuildSamples = 12;
+	float regirCellSize = 1.0f;
+	float regirSamplingJitter = 1.0f;
+	int numIndirectRegirSamples = 6;
 
-	struct
+struct
 	{
 		bool enableTemporalResampling = true;
 		int maxHistoryLength = 10;
@@ -131,7 +133,9 @@ public:
 		const std::shared_ptr<donut::engine::ExtendedScene> scene,
 		const RtxdiBridgeParameters& bridgeParams,
 		const nvrhi::BindingLayoutHandle extraBindingLayout,
-		bool UseReSTIRDI);
+		nvrhi::BindingSetHandle extraBindingSet,
+		bool usingLightSampling,
+        bool usingReGIRIndirect);
 	void Execute(
 		nvrhi::CommandListHandle commandList,
 		nvrhi::BindingSetHandle extraBindingSet, bool skipFinal);
@@ -143,6 +147,9 @@ public:
 	
 	std::shared_ptr<RtxdiResources> GetRTXDIResources() { return m_RtxdiResources; }
 	nvrhi::BufferHandle GetRTXDIConstants() { return m_RtxdiConstantBuffer; }
+
+	nvrhi::BindingLayoutHandle GetBindingLayout() { return m_BindingLayout; }
+	nvrhi::BindingSetHandle GetBindingSet() { return m_BindingSet; }
 
 private:
 	void CreatePipelines(nvrhi::BindingLayoutHandle extraBindingLayout = nullptr, bool useRayQuery = true);
@@ -201,6 +208,7 @@ private:
 	void FillSharedConstants(struct RtxdiBridgeConstants& bridgeConstants) const;
 	void FillDIConstants(struct ReStirDIConstants& diConstants);
 	void FillGIConstants(struct ReStirGIConstants& giConstants);
+	void FillReGirIndirectConstants(struct ReGirIndirectConstants& regirConstants);
 
 	RtxdiBridgeParameters m_BridgeParameters;
 	bool m_EnvMapDirty;

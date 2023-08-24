@@ -12,7 +12,7 @@
 #define SURFACE_DATA_HLSLI
 
 #include "../PathTracerBridgeDonut.hlsli"
-#include "../PathTracer/PathTracer.hlsli"
+//#include "../PathTracer/PathTracer.hlsli"
 
 #include "ShaderParameters.h"
 #include "HelperFunctions.hlsli"
@@ -101,17 +101,17 @@ struct PathTracerSurfaceData
     }
 
 #if PTSDK_DIFFUSE_SPECULAR_SPLIT
-	void Eval(const float3 wo, inout SampleGenerator sg, out float3 diffuse, out float3 specular)
+	void Eval(const float3 wo, out float3 diffuse, out float3 specular)
 	{
 		float3 wiLocal = _ToLocal(_V);
 		float3 woLocal = _ToLocal(wo);
 
 		FalcorBSDF bsdf = FalcorBSDF::make(_mtl, _N, _V, _data);
 
-		bsdf.eval(wiLocal, woLocal, sg, diffuse, specular);
+		bsdf.eval(wiLocal, woLocal, diffuse, specular);
 	}
 
-	void EvalRoughnessClamp(float minRoughness, const float3 wo, inout SampleGenerator sg, out float3 diffuse, out float3 specular)
+	void EvalRoughnessClamp(float minRoughness, const float3 wo, out float3 diffuse, out float3 specular)
 	{
 		StandardBSDFData roughBsdf = _data;
 		roughBsdf.roughness = max(roughBsdf.roughness, minRoughness);
@@ -121,11 +121,11 @@ struct PathTracerSurfaceData
 
 		FalcorBSDF bsdf = FalcorBSDF::make(_mtl, _N, _V, roughBsdf);
 
-		bsdf.eval(wiLocal, woLocal, sg, diffuse, specular);
+		bsdf.eval(wiLocal, woLocal, diffuse, specular);
 	}
 #endif
 
-	float3 Eval(const float3 wo, inout SampleGenerator sg)
+	float3 Eval(const float3 wo)
 	{
 		float3 wiLocal = _ToLocal(_V);
 		float3 woLocal = _ToLocal(wo);
@@ -134,10 +134,10 @@ struct PathTracerSurfaceData
 
 #if PTSDK_DIFFUSE_SPECULAR_SPLIT
 		float3 diffuse, specular;
-		bsdf.eval(wiLocal, woLocal, sg, diffuse, specular);
+		bsdf.eval(wiLocal, woLocal/*, sampleGenerator*/, diffuse, specular);
 		return diffuse + specular;
 #else
-		return bsdf.eval(wiLocal, woLocal, sg);
+		return bsdf.eval(wiLocal, woLocal/*, sampleGenerator*/);
 #endif
 	}
 
@@ -174,18 +174,18 @@ struct PathTracerSurfaceData
 		return bsdf.evalPdf(wiLocal, woLocal);
 	}
 
-	bool sampleReference(inout SampleGenerator sg, out BSDFSample result)
+	bool sampleReference(inout SampleGenerator sampleGenerator, out BSDFSample result)
 	{
 		uint lobes = FalcorBSDF::getLobes(_data);
 
 		const bool isTransmissive = (lobes & (uint)LobeType::Transmission) != 0;
 
 		float3 wiLocal = _ToLocal(_V);
-		float3 woLocal = sample_cosine_hemisphere_concentric(sampleNext2D(sg), result.pdf); // pdf = cos(theta) / pi
+		float3 woLocal = sample_cosine_hemisphere_concentric(sampleNext2D(sampleGenerator), result.pdf); // pdf = cos(theta) / pi
 
 		if (isTransmissive)
 		{
-			if (sampleNext1D(sg) < 0.5f)
+			if (sampleNext1D(sampleGenerator) < 0.5f)
 			{
 				woLocal.z = -woLocal.z;
 			}
@@ -202,25 +202,29 @@ struct PathTracerSurfaceData
 		result.wo = _FromLocal(woLocal);
 #if PTSDK_DIFFUSE_SPECULAR_SPLIT
 		float3 diffuse, specular;
-		bsdf.eval(wiLocal, woLocal, sg, diffuse, specular);
+		bsdf.eval(wiLocal, woLocal/*, sampleGenerator*/, diffuse, specular);
 		result.weight = (diffuse + specular) / result.pdf;
 #else
-		result.weight = bsdf.eval(wiLocal, woLocal, sg) / result.pdf;
+		result.weight = bsdf.eval(wiLocal, woLocal/*, sampleGenerator*/) / result.pdf;
 #endif
 		result.lobe = (uint)(woLocal.z > 0.f ? (uint)LobeType::DiffuseReflection : (uint)LobeType::DiffuseTransmission);
 
 		return true;
 	}
-
-	bool Sample(inout SampleGenerator sg, out BSDFSample result, bool useImportanceSampling)
+    
+	bool Sample(inout SampleGenerator sampleGenerator, out BSDFSample result, bool useImportanceSampling)
 	{
-		if (!useImportanceSampling) return sampleReference(sg, result);
+		if (!useImportanceSampling) return sampleReference(sampleGenerator, result);
 
 		float3 wiLocal = _ToLocal(_V);
 		float3 woLocal = float3(0, 0, 0);
 
 		FalcorBSDF bsdf = FalcorBSDF::make(_mtl, _N, _V, _data);
-		bool valid = bsdf.sample(wiLocal, woLocal, result.pdf, result.weight, result.lobe, result.lobeP, sg);
+#if RecycleSelectSamples
+        bool valid = bsdf.sample(wiLocal, woLocal, result.pdf, result.weight, result.lobe, result.lobeP, sampleNext3D(sampleGenerator));
+#else
+		bool valid = bsdf.sample(wiLocal, woLocal, result.pdf, result.weight, result.lobe, result.lobeP, sampleNext4D(sampleGenerator));
+#endif
 		result.wo = _FromLocal(woLocal);
 
 		return valid;
@@ -457,7 +461,7 @@ bool isValidPixelPosition(int2 pixelPosition)
 PathTracerSurfaceData getGBufferSurfaceImpl(uint2 pixelPosition, StablePlane sp, uint dominantStablePlaneIndex, uint stableBranchID)
 {
 	DebugContext debug;
-	debug.Init(pixelPosition, Bridge::getSampleIndex(), g_Const.debug, u_FeedbackBuffer, u_DebugLinesBuffer, u_DebugDeltaPathTree, u_DeltaPathSearchStack, u_DebugVizOutput);
+	debug.Init(pixelPosition, g_Const.debug, u_FeedbackBuffer, u_DebugLinesBuffer, u_DebugDeltaPathTree, u_DeltaPathSearchStack, u_DebugVizOutput);
 
     PackedHitInfo packedHitInfo; float3 rayDir; uint vertexIndex; uint SERSortKey; float sceneLength; float3 pathThp; float3 motionVectors;
     StablePlanesContext::UnpackStablePlane(sp, vertexIndex, packedHitInfo, SERSortKey, rayDir, sceneLength, pathThp, motionVectors);
@@ -468,12 +472,12 @@ PathTracerSurfaceData getGBufferSurfaceImpl(uint2 pixelPosition, StablePlane sp,
     if ((hit.isValid() && hit.getType() == HitType::Triangle))
     {
         // Load shading surface
-        const Ray cameraRay = Bridge::computeCameraRay( pixelPosition );
+        const Ray cameraRay = Bridge::computeCameraRay( pixelPosition, 0 );
         RayCone rayCone = RayCone::make(0, g_Const.ptConsts.camera.pixelConeSpreadAngle).propagateDistance(sceneLength);
-        const SurfaceData bridgedData = Bridge::loadSurface(OptimizationHints::NoHints(), TriangleHit::make(packedHitInfo), rayDir, rayCone, Bridge::getPathTracerParams(), vertexIndex, debug);
-        const ShadingData sd    = bridgedData.sd;
+        const PathTracer::SurfaceData bridgedData = Bridge::loadSurface(PathTracer::OptimizationHints::NoHints(), TriangleHit::make(packedHitInfo), rayDir, rayCone, vertexIndex, debug);
+        const ShadingData shadingData    = bridgedData.shadingData;
         const ActiveBSDF bsdf   = bridgedData.bsdf;
-        BSDFProperties bsdfProperties = bsdf.getProperties(sd);
+        BSDFProperties bsdfProperties = bsdf.getProperties(shadingData);
 
 #if 1
         float viewDepth = g_Const.ptConsts.camera.nearZ+dot( cameraRay.dir * sceneLength, normalize(g_Const.ptConsts.camera.directionW) );
@@ -482,18 +486,18 @@ PathTracerSurfaceData getGBufferSurfaceImpl(uint2 pixelPosition, StablePlane sp,
         float viewDepth = mul(float4(virtualWorldPos, 1), g_Const.view.matWorldToView).z;
 #endif
 
-		uint lobes = bsdf.getLobes(sd);
+		uint lobes = bsdf.getLobes(shadingData);
 		if ((lobes & (uint)LobeType::NonDeltaReflection) != 0)
 		{
 			PathTracerSurfaceData surface = PathTracerSurfaceData::create(
-				sd.mtl,
-				sd.T,
-				sd.B,
-				sd.N,
-				sd.V,
-				sd.posW,
-				sd.faceN,
-				sd.frontFacing,
+				shadingData.mtl,
+				shadingData.T,
+				shadingData.B,
+				shadingData.N,
+				shadingData.V,
+				shadingData.posW,
+				shadingData.faceN,
+				shadingData.frontFacing,
 				
 				viewDepth,
 				planeHash,

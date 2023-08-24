@@ -14,10 +14,12 @@
 #if !defined(__cplusplus)
 #include "Utils/Math/MathConstants.hlsli"
 
-uint4   PackTwoFp32ToFp16(float4 a, float4 b)                             { return (f32tof16(clamp(a, -HLF_MAX, HLF_MAX)) << 16) | f32tof16(clamp(b, -HLF_MAX, HLF_MAX)); }
-void    UnpackTwoFp32ToFp16(uint4 packed, out float4 a, out float4 b)     { a = f16tof32(packed >> 16); b = f16tof32(packed & 0xFFFF); }
-uint3   PackTwoFp32ToFp16(float3 a, float3 b)                             { return (f32tof16(clamp(a, -HLF_MAX, HLF_MAX)) << 16) | f32tof16(clamp(b, -HLF_MAX, HLF_MAX)); }
-void    UnpackTwoFp32ToFp16(uint3 packed, out float3 a, out float3 b)     { a = f16tof32(packed >> 16); b = f16tof32(packed & 0xFFFF); }
+uint4   PackTwoFp32ToFp16(float4 a, float4 b)                               { return (f32tof16(clamp(a, -HLF_MAX, HLF_MAX)) << 16) | f32tof16(clamp(b, -HLF_MAX, HLF_MAX)); }
+void    UnpackTwoFp32ToFp16(uint4 packed, out float4 a, out float4 b)       { a = f16tof32(packed >> 16); b = f16tof32(packed & 0xFFFF); }
+uint3   PackTwoFp32ToFp16(float3 a, float3 b)                               { return (f32tof16(clamp(a, -HLF_MAX, HLF_MAX)) << 16) | f32tof16(clamp(b, -HLF_MAX, HLF_MAX)); }
+void    UnpackTwoFp32ToFp16(uint3 packed, out float3 a, out float3 b)       { a = f16tof32(packed >> 16); b = f16tof32(packed & 0xFFFF); }
+uint    PackTwoFp32ToFp16(float  a, float  b)                               { return (f32tof16(clamp(a, -HLF_MAX, HLF_MAX)) << 16) | f32tof16(clamp(b, -HLF_MAX, HLF_MAX)); }
+void    UnpackTwoFp32ToFp16(uint packed, out float a, out float b)          { a = f16tof32(packed >> 16); b = f16tof32(packed & 0xFFFF); }
 
 // Clamp .rgb by luminance
 float3 LuminanceClamp(float3 signalIn, const float luminanceThreshold)

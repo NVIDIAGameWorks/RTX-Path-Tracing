@@ -11,7 +11,7 @@
 #ifndef __PATH_TRACER_BRIDGE_HLSLI__ // using instead of "#pragma once" due to https://github.com/microsoft/DirectXShaderCompiler/issues/3943
 #define __PATH_TRACER_BRIDGE_HLSLI__
 
-#include "Config.hlsli"
+#include "Config.h"
 #include "PathTracerTypes.hlsli"
 #include "Rendering/Volumes/HomogeneousVolumeSampler.hlsli"
 #include "Scene/Lights/LightHelpers.hlsli"
@@ -19,15 +19,19 @@
 
 namespace Bridge
 {
-    static PathTracerParams getPathTracerParams();
-
-    static uint getSampleIndex();
+    static uint getSampleBaseIndex();
+    
+    static uint getSubSampleCount();
+    
+    // When using multiple samples within pixel in realtime mode (which share identical camera ray), only noisy part of radiance (i.e. not direct sky) needs to be attenuated!
+    static float getNoisyRadianceAttenuation();
 
     static uint getMaxBounceLimit();
     
     static uint getMaxDiffuseBounceLimit();
 
-    static Ray computeCameraRay(const uint2 pixelPos);
+    // Gets primary camera ray for given pixel position; Note: all realtime mode subSamples currently share same camera ray at subSampleIndex == 0 (otherwise denoising guidance buffers would be noisy)
+    static Ray computeCameraRay(const uint2 pixelPos, const uint subSampleIndex);
 
     /** Helper to create a texture sampler instance.
     The method for computing texture level-of-detail depends on the configuration.
@@ -35,13 +39,13 @@ namespace Bridge
     \param[in] isPrimaryTriangleHit True if primary hit on a triangle.
     \return Texture sampler instance.
     */
-    static ActiveTextureSampler createTextureSampler(const RayCone rayCone, const float3 rayDir, float coneTexLODValue, float3 normalW, bool isPrimaryHit, bool isTriangleHit, const PathTracerParams params);
+    static ActiveTextureSampler createTextureSampler(const RayCone rayCone, const float3 rayDir, float coneTexLODValue, float3 normalW, bool isPrimaryHit, bool isTriangleHit, float texLODBias);
 
     static void loadSurfacePosNormOnly(out float3 posW, out float3 faceN, const TriangleHit triangleHit, DebugContext debug);
 
-    static SurfaceData loadSurface(const uniform OptimizationHints optimizationHints, const TriangleHit triangleHit, const float3 rayDir, const RayCone rayCone, const PathTracerParams params, const int pathVertexIndex, DebugContext debug);
+    static PathTracer::SurfaceData loadSurface(const uniform PathTracer::OptimizationHints optimizationHints, const TriangleHit triangleHit, const float3 rayDir, const RayCone rayCone, const int pathVertexIndex, DebugContext debug);
 
-    static void updateOutsideIoR(inout SurfaceData surfaceData, float outsideIoR);
+    static void updateOutsideIoR(inout PathTracer::SurfaceData surfaceData, float outsideIoR);
 
     static float loadIoR(const uint materialID);
 
@@ -51,7 +55,7 @@ namespace Bridge
     static uint getAnalyticLightCount();
 
     // Sample single analytic light source given the index (with respect to getAnalyticLightCount() )
-    static bool sampleAnalyticLight(const float3 shadingPosW, uint lightIndex, inout SampleGenerator sg, out AnalyticLightSample ls);
+    static bool sampleAnalyticLight(const float3 shadingPosW, uint lightIndex, inout SampleGenerator sampleGenerator, out AnalyticLightSample ls);
 
     // 2.5D motion vectors
     static float3 computeMotionVector(float3 posW, float3 prevPosW);
@@ -79,7 +83,7 @@ namespace Bridge
     // Consider simplifying alpha testing - perhaps splitting it up from the main geometry path, load it with fewer indirections or something like that.
     static bool traceVisibilityRay(RayDesc ray, const RayCone rayCone, const int pathVertexIndex, DebugContext debug);
 
-    static void traceScatterRay(const PathState path, inout RayDesc ray, inout RayQuery<RAY_FLAG_NONE> rayQuery, inout PackedHitInfo packedHitInfo, inout int sortKey, DebugContext debug);
+    static void traceScatterRay(const PathState path, inout RayDesc ray, inout RayQuery<RAY_FLAG_NONE> rayQuery, inout PackedHitInfo packedHitInfo, inout uint SERSortKey, DebugContext debug);
 
     static void StoreSecondarySurfacePositionAndNormal(uint2 pixelCoordinate, float3 worldPos, float3 normal);
 
@@ -99,7 +103,9 @@ namespace Bridge
         static float EvalPdf(float3 dir);
 
         // Importance sampling of the environment map.
-        static bool Sample(const float2 rnd, out EnvMapSample result);
+        static EnvMapSample Sample(const float2 rnd);
+        
+        static EnvMapSample SamplePresampled(const float rnd);
 
     } // namespace EnvMap
 };

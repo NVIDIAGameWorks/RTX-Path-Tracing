@@ -8,20 +8,30 @@
 * license agreement from NVIDIA CORPORATION is strictly prohibited.
 */
 
-#pragma once
-#include "Utils/HostDeviceShared.hlsli"
+#ifndef __ENV_MAP_DATA_H__
+#define __ENV_MAP_DATA_H__
 
-BEGIN_NAMESPACE_FALCOR
+#ifndef __cplusplus
+#pragma pack_matrix(row_major)
+#endif
 
 /** This is a host/device structure that describes the environment map proeprties.
 */
 struct EnvMapData
 {
-    float3x4    transform;              ///< Local to world transform.
-    float3x4    invTransform;           ///< World to local transform.
+	float3x4    transform;              ///< Local to world transform.
+	float3x4    invTransform;           ///< World to local transform.
 
-    float3      tint = {1.f, 1.f, 1.f}; ///< Color tint
-    float       intensity = 1.f;        ///< Radiance scale
+    float3      tint;                   ///< Color tint
+    float       intensity;              ///< Radiance scale
 };
 
-END_NAMESPACE_FALCOR
+// From ..\Falcor\Source\Falcor\Rendering\Lights\EnvMapSampler.hlsli
+struct EnvMapSamplerData
+{
+    float2      importanceInvDim;       ///< 1.0 / dimension.
+    uint        importanceBaseMip;      ///< Mip level for 1x1 resolution.
+    float       _padding0;
+};
+
+#endif // __ENV_MAP_DATA_H__

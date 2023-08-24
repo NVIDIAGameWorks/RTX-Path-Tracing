@@ -11,7 +11,7 @@
 #ifndef __SHADING_DATA_HLSLI__ // using instead of "#pragma once" due to https://github.com/microsoft/DirectXShaderCompiler/issues/3943
 #define __SHADING_DATA_HLSLI__
 
-#include "../Config.hlsli"    
+#include "../Config.h"    
 
 #include "../Utils/Geometry/GeometryHelpers.hlsli"
 
@@ -59,25 +59,25 @@ struct ShadingData
 
     static ShadingData make()
     {
-        ShadingData sd;
-        sd.posW = 0;
-        sd.V = 0;
-        sd.N = 0;
-        sd.T = 0;
-        sd.B = 0;
-        sd.uv = 0;
+        ShadingData shadingData;
+        shadingData.posW = 0;
+        shadingData.V = 0;
+        shadingData.N = 0;
+        shadingData.T = 0;
+        shadingData.B = 0;
+        shadingData.uv = 0;
     #ifdef FALCOR_INTERNAL
-        sd.ormalCurvature  = 0;
+        shadingData.ormalCurvature  = 0;
     #endif
-        sd.faceN = 0;
-        sd.frontFacing = 0;
-        sd.curveRadius = 0;
+        shadingData.faceN = 0;
+        shadingData.frontFacing = 0;
+        shadingData.curveRadius = 0;
 
-        sd.mtl = MaterialHeader::make();
-        sd.materialID = 0;
-        sd.opacity = 0;
-        sd.IoR = 0;
-        return sd;
+        shadingData.mtl = MaterialHeader::make();
+        shadingData.materialID = 0;
+        shadingData.opacity = 0;
+        shadingData.IoR = 0;
+        return shadingData;
     }
 
     // Utility functions

@@ -11,7 +11,7 @@
 #ifndef __INTERSECTION_HELPERS_HLSLI__ // using instead of "#pragma once" due to https://github.com/microsoft/DirectXShaderCompiler/issues/3943
 #define __INTERSECTION_HELPERS_HLSLI__
 
-#include "../../Config.hlsli"    
+#include "../../Config.h"    
 #include "../Math/MathConstants.hlsli"
 #include "../Math/MathHelpers.hlsli"
 

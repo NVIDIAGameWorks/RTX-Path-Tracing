@@ -11,7 +11,7 @@
 #ifndef __INTERIOR_LIST_HLSLI__ // using instead of "#pragma once" due to https://github.com/microsoft/DirectXShaderCompiler/issues/3943
 #define __INTERIOR_LIST_HLSLI__
 
-#include "../../Config.hlsli"    
+#include "../../Config.h"    
 
 /** Slots on the interior list have the following bit layout.
     0-27  materialID

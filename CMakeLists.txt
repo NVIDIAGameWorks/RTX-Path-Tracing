@@ -15,9 +15,12 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)
 
-if (NOT EXISTS "${CMAKE_SOURCE_DIR}/external/NVAPI" OR NOT EXISTS "${CMAKE_SOURCE_DIR}/media")
-    message(FATAL_ERROR "${CMAKE_SOURCE_DIR}/external/NVAPI and/or ${CMAKE_SOURCE_DIR}/media folders not present: \n!!!! please run update_dependencies.bat first !!!! ")
-endif()
+set(PTSDK_LOCAL_CONFIG_ID "NONAME" CACHE STRING "Local user initials for user-specific settings")
+add_definitions( -DPTSDK_LOCAL_CONFIG_ID_STRING=std::string\(\"${PTSDK_LOCAL_CONFIG_ID}\"\) )
+
+#if (NOT EXISTS "${CMAKE_SOURCE_DIR}/external/NVAPI" OR NOT EXISTS "${CMAKE_SOURCE_DIR}/media")
+#    message(FATAL_ERROR "${CMAKE_SOURCE_DIR}/external/NVAPI and/or ${CMAKE_SOURCE_DIR}/media folders not present: \n!!!! please run update_dependencies.bat first !!!! ")
+#endif()
 
 option(STREAMLINE_INTEGRATION "Enable Streamline integration (Required for DLSS3.0 and etc.)" ON)
 

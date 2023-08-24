@@ -13,7 +13,7 @@
 #ifndef __QUATERNION_HLSLI__ // using instead of "#pragma once" due to https://github.com/microsoft/DirectXShaderCompiler/issues/3943
 #define __QUATERNION_HLSLI__
 
-#include "../../Config.hlsli"    
+#include "../../Config.h"    
 
  /**************************************************************************************************************
   # All the quaternion code was copied from: https://gist.github.com/mattatz/40a91588d5fb38240403f198a938a593

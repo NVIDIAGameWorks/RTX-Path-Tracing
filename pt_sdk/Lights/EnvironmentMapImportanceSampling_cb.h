@@ -8,17 +8,21 @@
 * license agreement from NVIDIA CORPORATION is strictly prohibited.
 */
 
+#include "../PathTracer/Scene/Lights/EnvMapData.hlsli"
+
 #ifndef ENVIRONMENT_MAP_IMPORTANCE_SAMPLING_CB_H
 #define ENVIRONMENT_MAP_IMPORTANCE_SAMPLING_CB_H
 
 struct EnvironmentMapImportanceSamplingConstants
 {
-	uint2 outputDim;            // Resolution of the importance map in texels.
-	uint2 outputDimInSamples;   // Resolution of the importance map in samples.
-	uint2 numSamples;           // Per-texel subsamples s.xy at finest mip.
-	float invSamples;           // 1 / (s.x*s.y).
-	float _padding0;
-};
+	uint2               outputDim;              // Resolution of the importance map in texels.
+	uint2               outputDimInSamples;     // Resolution of the importance map in samples.
+	uint2               numSamples;             // Per-texel subsamples s.xy at finest mip.
+	float               invSamples;             // 1 / (s.x*s.y).
+    uint                sampleIndex;            // i.e. frame index
 
+    EnvMapData          envMapData;
+    EnvMapSamplerData   envMapSamplerData;
+};
 
 #endif // ENVIRONMENT_MAP_IMPORTANCE_SAMPLING_CB_H

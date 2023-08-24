@@ -103,6 +103,7 @@ namespace donut::app
         uint32_t maxFramesInFlight = 2;
         bool enableDebugRuntime = false;
         bool enableNvrhiValidationLayer = false;
+        bool enableGPUValidation = false;
         bool vsyncEnabled = false;
         bool enableRayTracingExtensions = false; // for vulkan
         bool enableComputeQueue = false;
@@ -256,7 +257,7 @@ namespace donut::app
         virtual ~DeviceManager() = default;
 
         void SetWindowTitle(const char* title);
-        void SetInformativeWindowTitle(const char* applicationName, const char* extraInfo = nullptr);
+        void SetInformativeWindowTitle(const char* applicationName, bool includeFramerate, const char* extraInfo/* = nullptr*/);
 
         virtual bool IsVulkanInstanceExtensionEnabled(const char* extensionName) const { return false; }
         virtual bool IsVulkanDeviceExtensionEnabled(const char* extensionName) const { return false; }

@@ -224,16 +224,16 @@ struct ReStirDIConstants
 	uint enablePermutationSampling;
 	float brdfCutoff;
 
-	uint numPrimaryRegirSamples;
 	uint numPrimaryLocalLightSamples;
 	uint numPrimaryBrdfSamples;
 	uint numPrimaryInfiniteLightSamples;
-
 	uint numPrimaryEnvironmentSamples;
+
 	uint maxHistoryLength;
 	uint numSpatialSamples;
 	uint numDisocclusionBoostSamples;
-    	
+    uint discountNaiveSamples;
+
 	float temporalDepthThreshold;
 	float temporalNormalThreshold;
 	uint temporalBiasCorrection;
@@ -244,10 +244,11 @@ struct ReStirDIConstants
 	float spatialNormalThreshold;
     uint spatialBiasCorrection;
 	
-    uint discountNaiveSamples;
+   
     uint visualizeRegirCells; 
 	uint _padding0;
 	uint _padding1;
+    uint _padding2;
     
 };
 
@@ -284,11 +285,20 @@ struct ReStirGIConstants {
     uint _padding2;
 };
 
+struct ReGirIndirectConstants
+{
+    uint numIndirectSamples;
+	uint _padding0;
+	uint _padding1;
+	uint _padding2;
+};
+
 struct RtxdiBridgeConstants 
 {
 	RTXDI_ResamplingRuntimeParameters runtimeParams;
     ReStirDIConstants reStirDI;
     ReStirGIConstants reStirGI;
+    ReGirIndirectConstants reGirIndirect;
 
 	uint frameIndex;
 	uint environmentMapImportanceSampling;
@@ -347,9 +357,6 @@ enum PolymorphicLightType
 #endif
 {
     kSphere = 0,
-    kCylinder,
-    kDisk,
-    kRect,
     kTriangle,
     kDirectional,
     kEnvironment,

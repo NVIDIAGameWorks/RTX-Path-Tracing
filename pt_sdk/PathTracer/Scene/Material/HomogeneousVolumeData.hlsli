@@ -11,7 +11,7 @@
 #ifndef __HOMOGENEOUS_VOLUME_DATA_HLSLI__ // using instead of "#pragma once" due to https://github.com/microsoft/DirectXShaderCompiler/issues/3943
 #define __HOMOGENEOUS_VOLUME_DATA_HLSLI__
 
-#include "../../Config.hlsli"    
+#include "../../Config.h"    
 
 struct HomogeneousVolumeData
 {
