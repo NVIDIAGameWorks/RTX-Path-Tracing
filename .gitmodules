@@ -14,9 +14,6 @@
 [submodule "external/Streamline"]
 	path = external/Streamline
 	url = https://github.com/NVIDIAGameWorks/Streamline.git
-[submodule "Path-Tracing-SDK-Media"]
-	path = Path-Tracing-SDK-Media
-	url = https://github.com/NVIDIAGameWorks/Path-Tracing-SDK-Media
 [submodule "external/NVAPI"]
 	path = external/NVAPI
 	url = https://github.com/NVIDIA/nvapi.git
