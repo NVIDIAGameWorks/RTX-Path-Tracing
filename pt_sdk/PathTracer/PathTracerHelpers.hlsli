@@ -11,7 +11,7 @@
 #ifndef __PATH_TRACER_HELPERS_HLSLI__ // using instead of "#pragma once" due to https://github.com/microsoft/DirectXShaderCompiler/issues/3943
 #define __PATH_TRACER_HELPERS_HLSLI__
 
-#include "Config.hlsli"    
+#include "Config.h"    
 #include "PathTracerShared.h"
 #include "Utils/Math/MathConstants.hlsli"
 #include "Utils/Math/Quaternion.hlsli"

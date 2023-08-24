@@ -42,10 +42,12 @@ struct SampleConstants
     float4 denoisingHitParamConsts;
 };
 
-// used in a couple of places like multipass postprocess where you want to keep SampleConstants the same for all passes, but send just a few additional per-pass parameters 
+// Used in a couple of places like multipass postprocess where you want to keep SampleConstants the same for all passes, but send just a few additional per-pass parameters 
+// In path tracing used to pass subSampleIndex (when enabled).
+// Set as 'push constants' (root constants)
 struct SampleMiniConstants
 {
-    uint   params[4];
+    uint4 params;
 };
 
 // per-instance-geometry data (avoids 1 layer of indirection that requires reading from instance and geometry buffers)
@@ -54,10 +56,10 @@ struct SubInstanceData  // could have been called GeometryInstanceData but that'
     static const int Flags_AlphaTested      	 = (1<<16);
     static const int Flags_ExcludeFromNEE    	 = (1<<17);
 
-    uint FlagsAndSortKey;
+    uint FlagsAndSERSortKey;
     uint GlobalGeometryIndex;           // index into t_GeometryData and t_GeometryDebugData
     uint AlphaTextureIndex;             // index into t_BindlessTextures
-    float AlphaCutoff;                  // could be packed into 8 bits and kept in FlagsAndSortKey
+    float AlphaCutoff;                  // could be packed into 8 bits and kept in FlagsAndSERSortKey
 };
 
 #endif // __SAMPLE_CONSTANT_BUFFER_H__

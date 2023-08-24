@@ -22,8 +22,6 @@
 #define __ENV_MAP_SAMPLER__
 
 #include "../../Utils/Math/MathHelpers.hlsli"
-#include "../../PathTracerShared.h"
-//#include "../../PathTracerTypes.hlsli"
 #include "EnvMap.hlsli"
 
 /** Struct returned from the sampling functions.
@@ -85,8 +83,10 @@ struct EnvMapSampler
 
     /** Importance sampling of the environment map.
     */
-    bool sample(const float2 rnd, out EnvMapSample result)
+    EnvMapSample sample(const float2 rnd)
     {
+        EnvMapSample result;
+        
         float2 p = rnd;     // Random sample in [0,1)^2.
         uint2 pos = 0;      // Top-left texel pos of current 2x2 region.
 
@@ -163,7 +163,7 @@ struct EnvMapSampler
         result.pdf = pdf * M_1_4PI;
         result.Le = gScene.envMap.eval(result.dir);
 
-        return true;
+        return result;
     }
 
     /** Evaluates the probability density function for a specific direction.

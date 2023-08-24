@@ -135,27 +135,36 @@ struct SampleUIData
 
     bool                                UseStablePlanes = false; // only determines whether UseStablePlanes is used in Accumulate mode (for testing correctness and enabling RTXDI) - in Realtime mode or when using RTXDI UseStablePlanes are necessary
     bool                                AllowRTXDIInReferenceMode = false; // allows use of RTXDI even in reference mode
-    bool                                UseReSTIR = false;  // should be renamed as ReSTIRDI?
+    bool                                UseNEE                      = true;
+    int                                 NEEDistantType              = 0;        // options not exposed to UI for now, just '0' supported; see what's the cost of adding uniform and other types at runtime
+    int                                 NEEDistantCandidateSamples  = 1;        // each full sample is picked from a number of candidate samples
+    int                                 NEEDistantFullSamples       = 2;        // each full sample requires a shadow ray!
+    int                                 NEELocalType                = 2;        // '0' is uniform, '1' is power (with pre-sampling), '2' is ReGIR; once this solidifies make it a proper enum
+    int                                 NEELocalCandidateSamples    = 4;        // each full sample is picked from a number of candidate samples
+    int                                 NEELocalFullSamples         = 2;        // each full sample requires a shadow ray!
+    float                               NEEMinRadianceThresholdMul = 1e-3f;
+    bool                                UseReSTIRDI = false;
     bool                                UseReSTIRGI = false;
     bool                                RealtimeMode = false;
-    bool                                RealtimeNoise = true;
+    int                                 RealtimeSamplesPerPixel = 1;        // equivalent to m_ui.AccumulationTarget in reference mode (except looping x times within frame)
+    bool                                RealtimeNoise = true;               // stops noise from changing at real-time - useful for reproducing rare bugs
     bool                                RealtimeDenoiser = true;
     bool                                ResetAccumulation = false;
     int                                 BounceCount = 30;
     int                                 ReferenceDiffuseBounceCount = 6;
     int                                 RealtimeDiffuseBounceCount = 3;
     int                                 AccumulationTarget = 4096;
-    int                                 AccumulationIndex = 0;  // only for info
+    int                                 AccumulationIndex = 0;
     bool                                AccumulationAA = true;
-    int                                 RealtimeAA = 2;         // 0 - no AA, 1 - TAA, 2 - DLSS,  3 - DLAA
+    int                                 RealtimeAA = 2;                     // 0 - no AA, 1 - TAA, 2 - DLSS,  3 - DLAA
     float                               CameraAperture = 0.0f;
     float                               CameraFocalDistance = 10000.0f;
     float                               CameraMoveSpeed = 2.0f;
-    float                               TexLODBias = -1.0f;     // as small as possible without reducing performance!
+    float                               TexLODBias = -1.0f;                 // as small as possible without reducing performance!
     bool                                SuppressPrimaryNEE = false;
 
     donut::render::TemporalAntiAliasingParameters TemporalAntiAliasingParams;
-    donut::render::TemporalAntiAliasingJitter     TemporalAntiAliasingJitter = donut::render::TemporalAntiAliasingJitter::R2;
+    donut::render::TemporalAntiAliasingJitter     TemporalAntiAliasingJitter = donut::render::TemporalAntiAliasingJitter::Halton;
 
     bool                                ContinuousDebugFeedback = false;
     bool                                ShowDebugLines = false;
@@ -179,7 +188,7 @@ struct SampleUIData
     bool                                RealtimeFireflyFilterEnabled = true;
     float                               RealtimeFireflyFilterThreshold = 0.25f;
 
-    float                               DenoiserRadianceClampK = 16.0f;
+    float                               DenoiserRadianceClampK = 8.0f;
 
     bool                                EnableRussianRoulette = true;
 
@@ -222,24 +231,26 @@ struct SampleUIData
     int                                 DLSSG_multiplier = 1;
 #endif
 
+    // See UI tooltips for more info (or search code for ImGui::SetTooltip()!)
     int                                 StablePlanesActiveCount             = cStablePlaneCount;
     int                                 StablePlanesMaxVertexDepth          = std::min(14u, cStablePlaneMaxVertexIndex);
     float                               StablePlanesSplitStopThreshold      = 0.95f;
-    float                               StablePlanesMinRoughness            = 0.07f;
+    float                               StablePlanesMinRoughness            = 0.06f;
     bool                                AllowPrimarySurfaceReplacement      = true;
     bool                                StablePlanesSuppressPrimaryIndirectSpecular = true;
-    float                               StablePlanesSuppressPrimaryIndirectSpecularK = 0.4f;
+    float                               StablePlanesSuppressPrimaryIndirectSpecularK = 0.6f;
     float                               StablePlanesAntiAliasingFallthrough = 0.6f;
     //bool                                StablePlanesSkipIndirectNoisePlane0 = false;
 
     std::shared_ptr<std::vector<TogglableNode>> TogglableNodes = nullptr;
 
-    bool                                ActualUseStablePlanes() const               { return UseStablePlanes || RealtimeMode || ActualUseRTXDIPasses(); }
+    bool                                ActualUseStablePlanes() const               { return UseStablePlanes || RealtimeMode || ((AllowRTXDIInReferenceMode) && (UseReSTIRDI || UseReSTIRGI)); }
     //bool                                ActualSkipIndirectNoisePlane0() const       { return StablePlanesSkipIndirectNoisePlane0 && StablePlanesActiveCount > 2; }
 
-    bool                                ActualUseRTXDIPasses() const                { return (RealtimeMode || AllowRTXDIInReferenceMode) && (UseReSTIR || UseReSTIRGI); }
-    bool                                ActualUseReSTIRDI() const                   { return (RealtimeMode || AllowRTXDIInReferenceMode) && (UseReSTIR); }
+    bool                                ActualUseRTXDIPasses() const                { return (RealtimeMode || AllowRTXDIInReferenceMode) && (UseReSTIRDI || UseReSTIRGI) || ((NEELocalFullSamples>0 && UseNEE)); }
+    bool                                ActualUseReSTIRDI() const                   { return UseNEE && (RealtimeMode || AllowRTXDIInReferenceMode) && (UseReSTIRDI); }
     bool                                ActualUseReSTIRGI() const                   { return (RealtimeMode || AllowRTXDIInReferenceMode) && (UseReSTIRGI); }
+    uint                                ActualSamplesPerPixel() const               { return (RealtimeMode && !(UseReSTIRDI || UseReSTIRGI))?RealtimeSamplesPerPixel:1u; }
 
     // Denoiser
     bool                                NRDModeChanged = false;
@@ -249,7 +260,7 @@ struct SampleUIData
     float                               NRDDisocclusionThresholdAlternate = 0.1f;
     nrd::RelaxDiffuseSpecularSettings   RelaxSettings;
     nrd::ReblurSettings                 ReblurSettings;
-
+    
 };
 
 class SampleUI : public donut::app::ImGui_Renderer

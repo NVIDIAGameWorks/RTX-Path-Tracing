@@ -11,7 +11,7 @@
 #ifndef __PATH_PAYLOAD_HLSLI__ // using instead of "#pragma once" due to https://github.com/microsoft/DirectXShaderCompiler/issues/3943
 #define __PATH_PAYLOAD_HLSLI__
 
-#include "Config.hlsli"    
+#include "Config.h"    
 
 // packed and aligned representation of PathState in a pre-raytrace state (no HitInfo, but path.origin and path.direction set)
 struct PathPayload
@@ -24,7 +24,7 @@ struct PathPayload
 
 #ifdef PATH_STATE_DEFINED
     static PathPayload pack(const PathState path);
-    static PathState unpack(const PathPayload p, const PackedHitInfo packedHitInfo, const uint sampleIndex);
+    static PathState unpack(const PathPayload p, const PackedHitInfo packedHitInfo);
 #endif
 };
 
@@ -55,9 +55,9 @@ PathPayload PathPayload::pack(const PathState path)
     float3 radianceVal = path.secondaryL;
 #endif
     p.packed[4].x = ((f32tof16(clamp(radianceVal.x, 0, HLF_MAX))) << 16) | (f32tof16(clamp(radianceVal.y, 0, HLF_MAX)));
-    p.packed[4].y = ((f32tof16(clamp(radianceVal.z, 0, HLF_MAX))) << 16) | (f32tof16(clamp(path.pdf, 0, HLF_MAX)));
-    p.packed[4].z = 0;
-    p.packed[4].w = 0;
+    p.packed[4].y = ((f32tof16(clamp(radianceVal.z, 0, HLF_MAX))) << 16); // empty space, was "| (f32tof16(clamp(path.pdf, 0, HLF_MAX)));"
+    p.packed[4].z = 0; // warning, this is used in some scenarios below
+    p.packed[4].w = ((f32tof16(saturate(path.emissiveMISWeight))) << 16) | (f32tof16(saturate(path.environmentMISWeight)));
 
 #if PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES
     uint p0 = ((f32tof16(path.imageXform[0].x)) << 16) | (f32tof16(path.imageXform[0].y));
@@ -73,7 +73,7 @@ PathPayload PathPayload::pack(const PathState path)
     return p;
 }
 
-PathState PathPayload::unpack(const PathPayload p, const PackedHitInfo packedHitInfo, const uint sampleIndex)
+PathState PathPayload::unpack(const PathPayload p, const PackedHitInfo packedHitInfo)
 {
     PathState path; // = {};
 
@@ -100,7 +100,7 @@ PathState PathPayload::unpack(const PathPayload p, const PackedHitInfo packedHit
 #else
     path.secondaryL = radianceVal;
 #endif
-    path.pdf = f16tof32(p.packed[4].y & 0xffff);
+    // path.pdf = f16tof32(p.packed[4].y & 0xffff); <- removed from path state for now but might come back in
 
     path.hitPacked = packedHitInfo;
 
@@ -119,6 +119,9 @@ PathState PathPayload::unpack(const PathPayload p, const PackedHitInfo packedHit
     path.denoiserDiffRadianceHitDist    = f16tof32(p.packed[5] >> 16);
     path.denoiserSpecRadianceHitDist    = f16tof32(p.packed[5] & 0xffff);
 #endif
+
+    path.emissiveMISWeight      = f16tof32(p.packed[4].w >> 16);
+    path.environmentMISWeight   = f16tof32(p.packed[4].w & 0xffff);
 
     return path;
 }

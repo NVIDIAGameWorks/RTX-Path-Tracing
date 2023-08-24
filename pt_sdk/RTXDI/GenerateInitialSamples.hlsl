@@ -39,7 +39,7 @@ void RayGen()
         return;
   
     RTXDI_SampleParameters sampleParams = RTXDI_InitSampleParameters(
-         g_RtxdiBridgeConst.reStirDI.numPrimaryRegirSamples,
+         g_RtxdiBridgeConst.reStirDI.numRegirBuildSamples,
          g_RtxdiBridgeConst.reStirDI.numPrimaryLocalLightSamples,
          g_RtxdiBridgeConst.reStirDI.numPrimaryInfiniteLightSamples,
          g_RtxdiBridgeConst.reStirDI.numPrimaryEnvironmentSamples,
@@ -50,10 +50,10 @@ void RayGen()
     RAB_LightSample lightSample;
     RTXDI_Reservoir reservoir = RTXDI_SampleLightsForSurface(rng, tileRng, surface, sampleParams, runtimeParams, lightSample);
 
-#if ENABLE_DEBUG_RTXDI_VIZUALISATION
+    // useful for debugging!
     DebugContext debug;
-    debug.Init(pixelPosition, 0, g_Const.debug, u_FeedbackBuffer, u_DebugLinesBuffer, u_DebugDeltaPathTree, u_DeltaPathSearchStack, u_DebugVizOutput);
-#endif
+    debug.Init(pixelPosition, g_Const.debug, u_FeedbackBuffer, u_DebugLinesBuffer, u_DebugDeltaPathTree, u_DeltaPathSearchStack, u_DebugVizOutput);
+
     if (g_RtxdiBridgeConst.reStirDI.enableInitialVisibility && RTXDI_IsValidReservoir(reservoir))
     {
         if (!RAB_GetConservativeVisibility(surface, lightSample))
@@ -77,10 +77,7 @@ void RayGen()
 #endif
     }
     {
-        // useful for debugging!
-        DebugContext debug;
-        debug.Init(pixelPosition, 0, g_Const.debug, u_FeedbackBuffer, u_DebugLinesBuffer, u_DebugDeltaPathTree, u_DeltaPathSearchStack, u_DebugVizOutput);
-
+        
         switch (g_Const.debug.debugViewType)
         {
         case (int)DebugViewType::ReSTIRDIInitialOutput:

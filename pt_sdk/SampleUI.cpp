@@ -90,6 +90,11 @@ SampleUI::SampleUI(DeviceManager* deviceManager, Sample& app, SampleUIData& ui, 
     m_ui.TemporalAntiAliasingParams.useHistoryClampRelax = true;
 
     m_ui.ToneMappingParams.toneMapOperator = ToneMapperOperator::HableUc2;
+
+    // enable by default for now
+    m_ui.RTXDI.reGirSettings.Mode = rtxdi::ReGIRMode::Grid;
+
+    m_ui.RTXDI.gi.boilingFilterStrength = 0.5f;
 }
 
 SampleUI::~SampleUI()
@@ -189,17 +194,7 @@ void SampleUI::buildUI(void)
     ImVec4 warnColor = { 1,0.5f,0.5f,1 };
 
     ImGui::Text("%s, %s", GetDeviceManager()->GetRendererString(), m_app.GetResolutionInfo().c_str() );
-    double frameTime = GetDeviceManager()->GetAverageFrameTimeSeconds();
-    if (frameTime > 0.0)
-    {
-#ifdef STREAMLINE_INTEGRATION
-        if (m_ui.DLSSG_multiplier != 1)
-            ImGui::Text("%.3f ms/%d-frames* (%.1f FPS*) *DLSS-G", frameTime * 1e3, m_ui.DLSSG_multiplier, m_ui.DLSSG_multiplier / frameTime);
-        else
-#endif
-            ImGui::Text("%.3f ms/frame (%.1f FPS)", frameTime * 1e3, 1.0 / frameTime);
-
-    }
+    ImGui::Text(m_app.GetFPSInfo().c_str());
 
     if (ImGui::CollapsingHeader("System")) //, ImGuiTreeNodeFlags_DefaultOpen))
     {
@@ -287,6 +282,11 @@ void SampleUI::buildUI(void)
             UI_SCOPED_DISABLE(!m_ui.RealtimeMode);
             ImGui::Checkbox("Enable animations", &m_ui.EnableAnimations);
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Animations are not available in reference mode");
+        }
+        if (ImGui::Button("Reset animation time"))
+        {
+            m_app.ResetSceneTime();
+            m_ui.ResetAccumulation = true;
         }
 
         if (m_ui.TogglableNodes != nullptr && ImGui::CollapsingHeader("Togglables"))
@@ -387,9 +387,15 @@ void SampleUI::buildUI(void)
             m_ui.ResetAccumulation = true;
         }
         ImGui::Indent(indent);
-        if( m_ui.RealtimeMode )
+        if (m_ui.RealtimeMode)
         {
-            ImGui::Checkbox("Enable denoiser", &m_ui.RealtimeDenoiser);
+            {
+                UI_SCOPED_DISABLE( (m_ui.UseReSTIRDI || m_ui.UseReSTIRGI) );
+                ImGui::InputInt("Samples per pixel", &m_ui.RealtimeSamplesPerPixel); 
+                m_ui.RealtimeSamplesPerPixel = dm::clamp(m_ui.RealtimeSamplesPerPixel, 1, 128);
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) 
+                    ImGui::SetTooltip("How many full paths to trace per pixel from the primary surface\n(camera ray is not re-cast so there is no added AA)\n(currently incompatible with ReSTIR DI & ReSTIR GI)");
+            }
 
             {
 #ifdef STREAMLINE_INTEGRATION
@@ -420,6 +426,7 @@ void SampleUI::buildUI(void)
             }
 
             ImGui::Checkbox("Realtime noise", &m_ui.RealtimeNoise);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("If disabled, global noise seed will not change per frame. Useful for \ndebugging transient issues hidden by noise, or for before/after comparison");
         }
         else // reference mode
         {
@@ -449,16 +456,27 @@ void SampleUI::buildUI(void)
             IMAGE_QUALITY_OPTION(ImGui::Checkbox("Anti-aliasing", &m_ui.AccumulationAA));
             IMAGE_QUALITY_OPTION(ImGui::Checkbox("Allow RTXDI in reference mode", &m_ui.AllowRTXDIInReferenceMode));
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Note: RTXDI history isn't currently being reset with accumulation reset, so expect non-determinism if RTXDI enabled in reference mode");
-            ImGui::TextWrapped("Note: no built-in denoiser for 'Reference' mode but 'Photo mode screenshot' option will launch external denoiser!");
+
         }
         ImGui::Unindent(indent);
 
-        IMAGE_QUALITY_OPTION(ImGui::Checkbox("Enable Russian Roulette", &m_ui.EnableRussianRoulette));
+        {
+            UI_SCOPED_DISABLE(!m_ui.RealtimeMode);
+            ImGui::Checkbox("Enable denoiser", &m_ui.RealtimeDenoiser);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Note: no built-in denoiser available in 'Reference' \nmode, however 'Photo mode screenshot' button launches\nexternal denoiser!");
+        }
+
+        IMAGE_QUALITY_OPTION(ImGui::Checkbox("Use Russian Roulette", &m_ui.EnableRussianRoulette));
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("This enables stochastic path termination for low throughput diffuse paths");
 
         if ( m_ui.RealtimeMode || m_ui.AllowRTXDIInReferenceMode )
         {
-            IMAGE_QUALITY_OPTION(ImGui::Checkbox("Use ReSTIR DI (RTXDI)", &m_ui.UseReSTIR));
+            {
+                UI_SCOPED_DISABLE(!m_ui.UseNEE);
+                IMAGE_QUALITY_OPTION(ImGui::Checkbox("Use ReSTIR DI (RTXDI)", &m_ui.UseReSTIRDI));
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("ReSTIR DI (RTXDI) requires Next Event Estimation to be enabled");
+
             IMAGE_QUALITY_OPTION(ImGui::Checkbox("Use ReSTIR GI (RTXDI)", &m_ui.UseReSTIRGI));
         }
 
@@ -494,8 +512,6 @@ void SampleUI::buildUI(void)
             m_ui.ReferenceFireflyFilterThreshold = dm::clamp(m_ui.ReferenceFireflyFilterThreshold, 0.01f, 1000.0f);
         }
 
-        IMAGE_QUALITY_OPTION(ImGui::Checkbox("Suppress Primary NEE", &m_ui.SuppressPrimaryNEE));
-
         if (m_SERSupported)
         {
             if (ImGui::Checkbox("DXR HitObject Extension codepath", &m_ui.DXRHitObjectExtension))
@@ -514,6 +530,57 @@ void SampleUI::buildUI(void)
             ImGui::Text( "<DXR Hit Object Extension not supported>" );
             m_ui.DXRHitObjectExtension = false;
         }
+
+        if (ImGui::CollapsingHeader("Next Event Estimation"))
+        {
+            IMAGE_QUALITY_OPTION(ImGui::Checkbox("Use Next Event Estimation", &m_ui.UseNEE));
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("This enables NEE a.k.a. direct light importance sampling (this includes ReSTIR DI but not ReSTIR GI)\nNote: analytic lights currently only come out of NEE so they will be missing when NEE is disabled");
+
+            if (m_ui.UseNEE)
+            {
+                ImGui::Separator();
+
+                ImGui::Text("Distant light importance sampling:");
+                ImGui::Indent(indent); 
+                ImGui::PushID("Distant");
+                IMAGE_QUALITY_OPTION(ImGui::Combo("Approach", (int*)&m_ui.NEEDistantType, "Envmap pre-sampling\0\0"));          
+                m_ui.NEEDistantType = dm::clamp(m_ui.NEEDistantType, 0, 0);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Note: all distant (directional) analytic lights will get baked into environment map. Currently not implemented.");
+                IMAGE_QUALITY_OPTION(ImGui::InputInt("Candidate samples", &m_ui.NEEDistantCandidateSamples, 1));                
+                m_ui.NEEDistantCandidateSamples = dm::clamp(m_ui.NEEDistantCandidateSamples, 1, 1);
+                IMAGE_QUALITY_OPTION(ImGui::InputInt("Full samples", &m_ui.NEEDistantFullSamples, 1));                          
+                m_ui.NEEDistantFullSamples = dm::clamp(m_ui.NEEDistantFullSamples, 0, 128);
+                ImGui::Unindent(indent);
+                ImGui::PopID();
+
+                ImGui::Separator();
+
+                ImGui::Text("Local light importance sampling:");
+                ImGui::Indent(indent);
+                ImGui::PushID("Local");
+                IMAGE_QUALITY_OPTION(ImGui::Combo("Approach", (int*)&m_ui.NEELocalType, "Uniform\0Power (pre-sampling)\0ReGIR\0\0"));   
+                m_ui.NEELocalType = dm::clamp(m_ui.NEELocalType, 0, 2);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("These are combined emissive triangles and analytic lights.\nNote: Some ReGIR internal settings are still controlled by ReSTIR DI settings");
+                IMAGE_QUALITY_OPTION(ImGui::InputInt("Candidate samples", &m_ui.NEELocalCandidateSamples, 1));                  
+                m_ui.NEELocalCandidateSamples = dm::clamp(m_ui.NEELocalCandidateSamples, 1, 16);
+                IMAGE_QUALITY_OPTION(ImGui::InputInt("Full samples", &m_ui.NEELocalFullSamples, 1));                            
+                m_ui.NEELocalFullSamples = dm::clamp(m_ui.NEELocalFullSamples, 0, 128);
+                ImGui::Unindent(indent);
+                ImGui::PopID();
+
+                ImGui::Separator();
+
+                IMAGE_QUALITY_OPTION(ImGui::InputFloat("Minimum radiance threshold", &m_ui.NEEMinRadianceThresholdMul, 0.0f, 0.0f, "%.4f"));
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("This will skip samples under certain radiance threshold (in multiples \nof pre-exposed gray luminance). Helps performance.");
+                m_ui.NEEMinRadianceThresholdMul = dm::clamp(m_ui.NEEMinRadianceThresholdMul, 0.0f, 1000.0f);
+
+                ImGui::Separator();
+
+                IMAGE_QUALITY_OPTION(ImGui::Checkbox("Suppress Primary NEE", &m_ui.SuppressPrimaryNEE));
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("NOTE: works only in realtime mode at the moment!");
+            }
+        }
+
         ImGui::Unindent(indent);
     }
 
@@ -543,6 +610,20 @@ void SampleUI::buildUI(void)
 #endif    
     }
 
+    if ((m_ui.ActualUseReSTIRDI() || m_ui.NEELocalType == 2)  && ImGui::CollapsingHeader("ReGIR"))
+    {
+		ImGui::Indent(indent);
+		ImGui::PushItemWidth(defItemWidth);
+       
+		IMAGE_QUALITY_OPTION(ImGui::InputInt("Number of Build Samples", &m_ui.RTXDI.numRegirBuildSamples));
+		m_ui.RTXDI.numRegirBuildSamples = dm::clamp(m_ui.RTXDI.numRegirBuildSamples, 0, 128);
+        IMAGE_QUALITY_OPTION(ImGui::SliderFloat("Cell Size", &m_ui.RTXDI.regirCellSize, 0.1f, 2.f));
+        IMAGE_QUALITY_OPTION(ImGui::SliderFloat("Sampling Jitter", &m_ui.RTXDI.regirSamplingJitter, 0.f, 1.f));
+
+        ImGui::PopItemWidth();
+        ImGui::Unindent(indent);
+    }
+
     if( m_ui.ActualUseReSTIRDI() && ImGui::CollapsingHeader("ReSTIR DI")) //, ImGuiTreeNodeFlags_DefaultOpen))
     {
         ImGui::Indent(indent);
@@ -552,7 +633,6 @@ void SampleUI::buildUI(void)
             "Disabled\0Spatial\0Temporal\0Spatio-Temporal\0Fused\0\0"));
         m_ui.RTXDI.resamplingMode = dm::clamp(m_ui.RTXDI.resamplingMode, (RtxdiResamplingModeType)0, RtxdiResamplingModeType::MaxCount);
 
-
         IMAGE_QUALITY_OPTION(ImGui::Combo("Spatial Bias Correction", (int*)&m_ui.RTXDI.spatialBiasCorrection,
             "Off\0Basic\0Pairwise\0Ray Traced\0\0"));
 		m_ui.RTXDI.spatialBiasCorrection = dm::clamp(m_ui.RTXDI.spatialBiasCorrection, (uint32_t)0, (uint32_t)4);
@@ -560,20 +640,14 @@ void SampleUI::buildUI(void)
         IMAGE_QUALITY_OPTION(ImGui::Combo("Temporal Bias Correction", (int*)&m_ui.RTXDI.temporalBiasCorrection,
             "Off\0Basic\0Pairwise\0Ray Traced\0\0"));
 		m_ui.RTXDI.temporalBiasCorrection = dm::clamp(m_ui.RTXDI.temporalBiasCorrection, (uint32_t)0, (uint32_t)4);
-
-        IMAGE_QUALITY_OPTION(ImGui::Combo("ReGIR Mode", (int*)&m_ui.RTXDI.reGirSettings.Mode,
-            "Disabled\0Grid\0Onion\0\0"));
-        m_ui.RTXDI.reGirSettings.Mode = dm::clamp(m_ui.RTXDI.reGirSettings.Mode, (rtxdi::ReGIRMode)0, (rtxdi::ReGIRMode)2);
-        
+  
         ImGui::PopItemWidth();
 
-        ImGui::PushItemWidth(defItemWidth*0.5f);
+        ImGui::PushItemWidth(defItemWidth*0.8f);
             
         ImGui::Text("Number of Primary Samples: ");
         ImGui::Indent(indent);
-
-        IMAGE_QUALITY_OPTION(ImGui::InputInt("ReGir", &m_ui.RTXDI.numPrimaryRegirSamples));
-        m_ui.RTXDI.numPrimaryRegirSamples = dm::clamp(m_ui.RTXDI.numPrimaryRegirSamples, 0, 128);
+    
         IMAGE_QUALITY_OPTION(ImGui::InputInt("Local Light", &m_ui.RTXDI.numPrimaryLocalLightSamples));
 		m_ui.RTXDI.numPrimaryLocalLightSamples = dm::clamp(m_ui.RTXDI.numPrimaryLocalLightSamples, 0, 128);
         IMAGE_QUALITY_OPTION(ImGui::InputInt("BRDF", &m_ui.RTXDI.numPrimaryBrdfSamples));
@@ -646,7 +720,7 @@ void SampleUI::buildUI(void)
         ImGui::SliderFloat("Path split stop threshold", &m_ui.StablePlanesSplitStopThreshold, 0.0f, 2.0f);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Stops splitting if more than this threshold throughput will be on a non-taken branch.\nActual threshold is this value divided by vertexIndex.");
         ImGui::SliderFloat("Min denoising roughness", &m_ui.StablePlanesMinRoughness, 0.0f, 0.3f);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Lets denoiser blur out radiance that falls through on delta surfaces.");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Artificially increase roughness that denoiser sees, for radiance that \nfalls through on delta surfaces. Attenuates the noise at the expense of sharpness.");
         ImGui::Checkbox("Primary Surface Replacement", &m_ui.AllowPrimarySurfaceReplacement);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("When stable planes enabled, whether we can use PSR for the first (base) plane");
         ImGui::Checkbox("Suppress primary plane noisy specular", &m_ui.StablePlanesSuppressPrimaryIndirectSpecular);
@@ -1105,12 +1179,13 @@ void SampleUI::buildUI(void)
             "StablePlaneNormals\0StablePlaneRoughness\0StablePlaneDiffBSDFEstimate\0StablePlaneDiffRadiance\0StablePlaneDiffHitDist\0StablePlaneSpecBSDFEstimate\0StablePlaneSpecRadiance\0StablePlaneSpecHitDist\0"
             "StablePlaneRelaxedDisocclusion\0StablePlaneDiffRadianceDenoised\0StablePlaneSpecRadianceDenoised\0StablePlaneCombinedRadianceDenoised\0StablePlaneViewZ\0StablePlaneDenoiserValidation\0"
             "StableRadiance\0"
-            "FirstHitBarycentrics\0FirstHitFaceNormal\0FirstHitShadingNormal\0FirstHitShadingTangent\0FirstHitShadingBitangent\0FirstHitFrontFacing\0FirstHitDoubleSided\0FirstHitThinSurface\0FirstHitShaderPermutation\0"
+            "FirstHitBarycentrics\0FirstHitFaceNormal\0FirstHitShadingNormal\0FirstHitShadingTangent\0FirstHitShadingBitangent\0FirstHitFrontFacing\0FirstHitThinSurface\0FirstHitShaderPermutation\0"
             "FirstHitDiffuse\0FirstHitSpecular\0FirstHitRoughness\0FirstHitMetallic\0"
             "VBufferMotionVectors\0VBufferDepth\0"
             "FirstHitOpacityMicroMapInWorld\0FirstHitOpacityMicroMapOverlay\0"
             "SecondarySurfacePosition\0SecondarySurfaceRadiance\0ReSTIRGIOutput\0"
             "ReSTIRDIInitialOutput\0ReSTIRDIFinalOutput\0"
+			"ReGIRIndirectOutput\0"
             "\0\0") )
             m_ui.ResetAccumulation = true;
         m_ui.DebugView = dm::clamp( m_ui.DebugView, (DebugViewType)0, DebugViewType::MaxCount );
@@ -1132,7 +1207,13 @@ void SampleUI::buildUI(void)
             m_app.SetUIPick();
 
         ImGui::Checkbox("Continuous feedback", &m_ui.ContinuousDebugFeedback);
-        ImGui::Checkbox("Show debug lines", &m_ui.ShowDebugLines);
+
+        {
+            UI_SCOPED_DISABLE(ENABLE_DEBUG_LINES_VIZUALISATION == 0);
+            ImGui::Checkbox("Show debug lines", &m_ui.ShowDebugLines);
+        }
+        if (ENABLE_DEBUG_LINES_VIZUALISATION == 0 && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) 
+            ImGui::SetTooltip("To enable debug lines, set ENABLE_DEBUG_LINES_VIZUALISATION to 1 in Config.h");
         
         if (ImGui::Checkbox("Show material editor", &m_ui.ShowMaterialEditor) && m_ui.ShowMaterialEditor)
         {

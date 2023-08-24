@@ -11,7 +11,7 @@
 #ifndef __HOMOGENEOUS_VOLUME_SAMPLER_HLSLI__ // using instead of "#pragma once" due to https://github.com/microsoft/DirectXShaderCompiler/issues/3943
 #define __HOMOGENEOUS_VOLUME_SAMPLER_HLSLI__
 
-#include "../../Config.hlsli"    
+#include "../../Config.h"    
 #include "../../Scene/Material/HomogeneousVolumeData.hlsli"
 
 /** Helper class for sampling homogeneous volumes.
@@ -45,11 +45,11 @@ struct HomogeneousVolumeSampler
         \param[in] sigmaA Absorption coefficient.
         \param[in] sigmaS Scattering coefficient.
         \param[in] thp Current path throughput (used to compute channel sampling probabilities).
-        \param[in,out] sg Sample generator.
+        \param[in,out] sampleGenerator Sample generator.
         \param[out] ds Distance sample.
         \return Returns true if a scattering distance was sampled (false if medium does not scatter).
     */
-    static bool sampleDistance(const float3 sigmaA, const float3 sigmaS, const float3 thp, inout SampleGenerator sg, out DistanceSample ds)
+    static bool sampleDistance(const float3 sigmaA, const float3 sigmaS, const float3 thp, inout SampleGenerator sampleGenerator, out DistanceSample ds)
     {
         if (all(sigmaS == 0.f)) return false;
 
@@ -75,7 +75,7 @@ struct HomogeneousVolumeSampler
         }
 
         // Sample RGB channel.
-        const float xi = sampleNext1D(sg);
+        const float xi = sampleNext1D(sampleGenerator);
         uint channel;
         if (xi < channelProbs.r)
         {
@@ -90,7 +90,7 @@ struct HomogeneousVolumeSampler
             channel = 2;
         }
 
-        const float u = sampleNext1D(sg);
+        const float u = sampleNext1D(sampleGenerator);
         const float t = -log(1.f - u) / sigmaS[channel];
 
         // Return distance sample.
@@ -105,13 +105,13 @@ struct HomogeneousVolumeSampler
     /** Sample a scattering distance.
         \param[in] vd Medium properties.
         \param[in] thp Current path throughput (used to compute channel sampling probabilities).
-        \param[in,out] sg Sample generator.
+        \param[in,out] sampleGenerator Sample generator.
         \param[out] ds Distance sample.
         \return Returns true if a scattering distance was sampled (false if medium does not scatter).
     */
-    static bool sampleDistance(const HomogeneousVolumeData vd, const float3 thp, inout SampleGenerator sg, out DistanceSample ds)
+    static bool sampleDistance(const HomogeneousVolumeData vd, const float3 thp, inout SampleGenerator sampleGenerator, out DistanceSample ds)
     {
-        return sampleDistance(vd.sigmaA, vd.sigmaS, thp, sg, ds);
+        return sampleDistance(vd.sigmaA, vd.sigmaS, thp, sampleGenerator, ds);
     }
 
     /** Evaluate transmittance through a homogeneous medium.

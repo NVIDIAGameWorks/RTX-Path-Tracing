@@ -11,7 +11,7 @@
 #ifndef __BxDF_HLSLI__ // using instead of "#pragma once" due to https://github.com/microsoft/DirectXShaderCompiler/issues/3943
 #define __BxDF_HLSLI__
 
-#include "../../Config.hlsli"    
+#include "../../Config.h"    
 
 #include "../../Utils/Math/MathConstants.hlsli"
 
@@ -29,6 +29,10 @@
 // Some BSDF functions are not robust for cos(theta) == 0.0,
 // so using a small epsilon for consistency.
 static const float kMinCosTheta = 1e-6f;
+
+// Because sample values must be strictly less than 1, it’s useful to define a constant, OneMinusEpsilon, that represents the largest 
+// representable floating-point constant that is less than 1. (https://www.pbr-book.org/3ed-2018/Sampling_and_Reconstruction/Sampling_Interface)
+static const float OneMinusEpsilon = 0x1.fffffep-1;
 
 // import Scene.ShadingData;
 // import Utils.Math.MathHelpers;
@@ -49,11 +53,20 @@ static const float kMinCosTheta = 1e-6f;
 // This is for testing only, as many terms of the equation cancel out allowing to save on computation.
 #define ExplicitSampleWeights   0
 
+// When deciding a lobe to sample, expand and reuse the random sample - losing at precision but gaining on performance when using costly LD sampler
+#define RecycleSelectSamples    1
+
 // We clamp the GGX width parameter to avoid numerical instability.
 // In some computations, we can avoid clamps etc. if 1.0 - alpha^2 != 1.0, so the epsilon should be 1.72666361e-4 or larger in fp32.
 // The the value below is sufficient to avoid visible artifacts.
 // Falcor used to clamp roughness to 0.08 before the clamp was removed for allowing delta events. We continue to use the same threshold.
 static const float kMinGGXAlpha = 0.0064f;
+
+// Note: preGeneratedSample argument value in 'sample' interface is a vector of 3 or 4 [0, 1) random numbers, generated with the SampleGenerator and 
+// depending on configuration will either be a pseudo-random or quasi-random.
+// Some quasi-random (Low Discrepancy / Stratified) samples are such that dimensions are designed to work well in pairs, so ideally use .xy for lobe
+// projection sample and .z for lobe selection (if used).
+// For more info see https://www.pbr-book.org/3ed-2018/Sampling_and_Reconstruction/Stratified_Sampling
 
 /** Lambertian diffuse reflection.
     f_r(wi, wo) = albedo / pi
@@ -62,16 +75,16 @@ struct DiffuseReflectionLambert // : IBxDF
 {
     float3 albedo;  ///< Diffuse albedo.
 
-    float3 eval(const float3 wi, const float3 wo, inout SampleGenerator sg)
+    float3 eval(const float3 wi, const float3 wo)
     {
         if (min(wi.z, wo.z) < kMinCosTheta) return float3(0,0,0);
 
         return M_1_PI * albedo * wo.z;
     }
 
-    bool sample(const float3 wi, out float3 wo, out float pdf, out float3 weight, out uint lobe, out float lobeP, inout SampleGenerator sg)
+    bool sample(const float3 wi, out float3 wo, out float pdf, out float3 weight, out uint lobe, out float lobeP, float3 preGeneratedSample)
     {
-        wo = sample_cosine_hemisphere_concentric(sampleNext2D(sg), pdf);
+        wo = sample_cosine_hemisphere_concentric(preGeneratedSample.xy, pdf);
         lobe = (uint)LobeType::DiffuseReflection;
 
         if (min(wi.z, wo.z) < kMinCosTheta)
@@ -102,16 +115,16 @@ struct DiffuseReflectionDisney // : IBxDF
     float3 albedo;          ///< Diffuse albedo.
     float roughness;        ///< Roughness before remapping.
 
-    float3 eval(const float3 wi, const float3 wo, inout SampleGenerator sg)
+    float3 eval(const float3 wi, const float3 wo)
     {
         if (min(wi.z, wo.z) < kMinCosTheta) return float3(0,0,0);
 
         return evalWeight(wi, wo) * M_1_PI * wo.z;
     }
 
-    bool sample(const float3 wi, out float3 wo, out float pdf, out float3 weight, out uint lobe, out float lobeP, inout SampleGenerator sg)
+    bool sample(const float3 wi, out float3 wo, out float pdf, out float3 weight, out uint lobe, out float lobeP, float3 preGeneratedSample)
     {
-        wo = sample_cosine_hemisphere_concentric(sampleNext2D(sg), pdf);
+        wo = sample_cosine_hemisphere_concentric(preGeneratedSample.xy, pdf);
         lobe = (uint)LobeType::DiffuseReflection;
 
         if (min(wi.z, wo.z) < kMinCosTheta)
@@ -157,16 +170,16 @@ struct DiffuseReflectionFrostbite // : IBxDF
     float3 albedo;          ///< Diffuse albedo.
     float roughness;        ///< Roughness before remapping.
 
-    float3 eval(const float3 wi, const float3 wo, inout SampleGenerator sg)
+    float3 eval(const float3 wi, const float3 wo)
     {
         if (min(wi.z, wo.z) < kMinCosTheta) return float3(0,0,0);
 
         return evalWeight(wi, wo) * M_1_PI * wo.z;
     }
 
-    bool sample(const float3 wi, out float3 wo, out float pdf, out float3 weight, out uint lobe, out float lobeP, inout SampleGenerator sg)
+    bool sample(const float3 wi, out float3 wo, out float pdf, out float3 weight, out uint lobe, out float lobeP, float3 preGeneratedSample)
     {
-        wo = sample_cosine_hemisphere_concentric(sampleNext2D(sg), pdf);
+        wo = sample_cosine_hemisphere_concentric(preGeneratedSample.xy, pdf);
         lobe = (uint)LobeType::DiffuseReflection;
 
         if (min(wi.z, wo.z) < kMinCosTheta)
@@ -211,16 +224,16 @@ struct DiffuseTransmissionLambert // : IBxDF
 {
     float3 albedo;  ///< Diffuse albedo.
 
-    float3 eval(const float3 wi, const float3 wo, inout SampleGenerator sg)
+    float3 eval(const float3 wi, const float3 wo)
     {
         if (min(wi.z, -wo.z) < kMinCosTheta) return float3(0,0,0);
 
         return M_1_PI * albedo * -wo.z;
     }
 
-    bool sample(const float3 wi, out float3 wo, out float pdf, out float3 weight, out uint lobe, out float lobeP, inout SampleGenerator sg)
+    bool sample(const float3 wi, out float3 wo, out float pdf, out float3 weight, out uint lobe, out float lobeP, float3 preGeneratedSample)
     {
-        wo = sample_cosine_hemisphere_concentric(sampleNext2D(sg), pdf);
+        wo = sample_cosine_hemisphere_concentric(preGeneratedSample.xy, pdf);
         wo.z = -wo.z;
         lobe = (uint)LobeType::DiffuseTransmission;
 
@@ -254,7 +267,7 @@ struct SpecularReflectionMicrofacet // : IBxDF
 
     bool hasLobe(LobeType lobe) { return (activeLobes & (uint)lobe) != 0; }
 
-    float3 eval(const float3 wi, const float3 wo, inout SampleGenerator sg)
+    float3 eval(const float3 wi, const float3 wo)
     {
         if (min(wi.z, wo.z) < kMinCosTheta) return float3(0,0,0);
 
@@ -278,7 +291,7 @@ struct SpecularReflectionMicrofacet // : IBxDF
         return F * D * G * 0.25f / wi.z;
     }
 
-    bool sample(const float3 wi, out float3 wo, out float pdf, out float3 weight, out uint lobe, out float lobeP, inout SampleGenerator sg)
+    bool sample(const float3 wi, out float3 wo, out float pdf, out float3 weight, out uint lobe, out float lobeP, float3 preGeneratedSample)
     {
         // Default initialization to avoid divergence at returns.
         wo = float3(0,0,0);
@@ -307,9 +320,9 @@ struct SpecularReflectionMicrofacet // : IBxDF
 
         // Sample the GGX distribution to find a microfacet normal (half vector).
 #if EnableVNDFSampling
-        float3 h = sampleGGX_VNDF(alpha, wi, sampleNext2D(sg), pdf);    // pdf = G1(wi) * D(h) * max(0,dot(wi,h)) / wi.z
+        float3 h = sampleGGX_VNDF(alpha, wi, preGeneratedSample.xy, pdf);    // pdf = G1(wi) * D(h) * max(0,dot(wi,h)) / wi.z
 #else
-        float3 h = sampleGGX_NDF(alpha, sampleNext2D(sg), pdf);         // pdf = D(h) * h.z
+        float3 h = sampleGGX_NDF(alpha, preGeneratedSample.xy, pdf);         // pdf = D(h) * h.z
 #endif
 
         // Reflect the incident direction to find the outgoing direction.
@@ -320,7 +333,7 @@ struct SpecularReflectionMicrofacet // : IBxDF
 #if ExplicitSampleWeights
         // For testing.
         pdf = evalPdf(wi, wo);
-        weight = eval(wi, wo, sg) / pdf;
+        weight = eval(wi, wo) / pdf;
         lobe = (uint)LobeType::SpecularReflection;
         return true;
 #endif
@@ -377,7 +390,7 @@ struct SpecularReflectionTransmissionMicrofacet// : IBxDF
 
     bool hasLobe(LobeType lobe) { return (activeLobes & (uint)lobe) != 0; }
 
-    float3 eval(const float3 wi, const float3 wo, inout SampleGenerator sg)
+    float3 eval(const float3 wi, const float3 wo)
     {
         if (min(wi.z, abs(wo.z)) < kMinCosTheta) return float3(0,0,0);
 
@@ -418,7 +431,7 @@ struct SpecularReflectionTransmissionMicrofacet// : IBxDF
         }
     }
 
-    bool sample(const float3 wi, out float3 wo, out float pdf, out float3 weight, out uint lobe, out float lobeP, inout SampleGenerator sg)
+    bool sample(const float3 wi, out float3 wo, out float pdf, out float3 weight, out uint lobe, out float lobeP, float3 preGeneratedSample)
     {
         // Default initialization to avoid divergence at returns.
         wo = float3(0,0,0);
@@ -430,7 +443,7 @@ struct SpecularReflectionTransmissionMicrofacet// : IBxDF
         if (wi.z < kMinCosTheta) return false;
 
         // Get a random number to decide what lobe to sample.
-        float lobeSample = sampleNext1D(sg);
+        float lobeSample = preGeneratedSample.z;
 
 #if EnableDeltaBSDF
         // Handle delta reflection/transmission.
@@ -472,9 +485,9 @@ struct SpecularReflectionTransmissionMicrofacet// : IBxDF
 
         // Sample the GGX distribution of (visible) normals. This is our half vector.
 #if EnableVNDFSampling
-        float3 h = sampleGGX_VNDF(alpha, wi, sampleNext2D(sg), pdf);    // pdf = G1(wi) * D(h) * max(0,dot(wi,h)) / wi.z
+        float3 h = sampleGGX_VNDF(alpha, wi, preGeneratedSample.xy, pdf);    // pdf = G1(wi) * D(h) * max(0,dot(wi,h)) / wi.z
 #else
-        float3 h = sampleGGX_NDF(alpha, sampleNext2D(sg), pdf);         // pdf = D(h) * h.z
+        float3 h = sampleGGX_NDF(alpha, preGeneratedSample.xy, pdf);         // pdf = D(h) * h.z
 #endif
 
         // Reflect/refract the incident direction to find the outgoing direction.
@@ -506,7 +519,7 @@ struct SpecularReflectionTransmissionMicrofacet// : IBxDF
 #if ExplicitSampleWeights
         // For testing.
         pdf = evalPdf(wi, wo);
-        weight = pdf > 0.f ? eval(wi, wo, sg) / pdf : float3(0.f);
+        weight = pdf > 0.f ? eval(wi, wo) / pdf : float3(0.f);
         return true;
 #endif
 
@@ -756,12 +769,12 @@ struct FalcorBSDF // : IBxDF
     \param[in] sd Shading data.
     \param[in] data BSDF parameters.
 */
-    void __init(const ShadingData sd, const StandardBSDFData data)
+    void __init(const ShadingData shadingData, const StandardBSDFData data)
     {
-        __init(sd.mtl, sd.V, sd.N, data);
+        __init(shadingData.mtl, shadingData.V, shadingData.N, data);
     }
 
-    static FalcorBSDF make( const ShadingData sd, const StandardBSDFData data )     { FalcorBSDF ret; ret.__init(sd, data); return ret; }
+    static FalcorBSDF make( const ShadingData shadingData, const StandardBSDFData data )     { FalcorBSDF ret; ret.__init(shadingData, data); return ret; }
 
     static FalcorBSDF make(
         const MaterialHeader mtl,
@@ -801,27 +814,33 @@ struct FalcorBSDF // : IBxDF
     }
 
 #if PTSDK_DIFFUSE_SPECULAR_SPLIT
-    void eval(const float3 wi, const float3 wo, inout SampleGenerator sg, out float3 diffuse, out float3 specular)
+    void eval(const float3 wi, const float3 wo, out float3 diffuse, out float3 specular)
     {
         diffuse = 0.f; specular = 0.f;
-        if (pDiffuseReflection > 0.f) diffuse += (1.f - specTrans) * (1.f - diffTrans) * diffuseReflection.eval(wi, wo, sg);
-        if (pDiffuseTransmission > 0.f) diffuse += (1.f - specTrans) * diffTrans * diffuseTransmission.eval(wi, wo, sg);
-        if (pSpecularReflection > 0.f) specular += (1.f - specTrans) * specularReflection.eval(wi, wo, sg);
-        if (pSpecularReflectionTransmission > 0.f) specular += specTrans * (specularReflectionTransmission.eval(wi, wo, sg));
+        if (pDiffuseReflection > 0.f) diffuse += (1.f - specTrans) * (1.f - diffTrans) * diffuseReflection.eval(wi, wo);
+        if (pDiffuseTransmission > 0.f) diffuse += (1.f - specTrans) * diffTrans * diffuseTransmission.eval(wi, wo);
+        if (pSpecularReflection > 0.f) specular += (1.f - specTrans) * specularReflection.eval(wi, wo);
+        if (pSpecularReflectionTransmission > 0.f) specular += specTrans * (specularReflectionTransmission.eval(wi, wo));
     }
 #else
-    float3 eval(const float3 wi, const float3 wo, inout SampleGenerator sg)
+    float3 eval(const float3 wi, const float3 wo)
     {
         float3 result = 0.f;
-        if (pDiffuseReflection > 0.f) result += (1.f - specTrans) * (1.f - diffTrans) * diffuseReflection.eval(wi, wo, sg);
-        if (pDiffuseTransmission > 0.f) result += (1.f - specTrans) * diffTrans * diffuseTransmission.eval(wi, wo, sg);
-        if (pSpecularReflection > 0.f) result += (1.f - specTrans) * specularReflection.eval(wi, wo, sg);
-        if (pSpecularReflectionTransmission > 0.f) result += specTrans * (specularReflectionTransmission.eval(wi, wo, sg));
+        if (pDiffuseReflection > 0.f) result += (1.f - specTrans) * (1.f - diffTrans) * diffuseReflection.eval(wi, wo);
+        if (pDiffuseTransmission > 0.f) result += (1.f - specTrans) * diffTrans * diffuseTransmission.eval(wi, wo);
+        if (pSpecularReflection > 0.f) result += (1.f - specTrans) * specularReflection.eval(wi, wo);
+        if (pSpecularReflectionTransmission > 0.f) result += specTrans * (specularReflectionTransmission.eval(wi, wo));
         return result;
     }
 #endif
 
-    bool sample(const float3 wi, out float3 wo, out float pdf, out float3 weight, out uint lobe, out float lobeP, inout SampleGenerator sg)
+    bool sample(const float3 wi, out float3 wo, out float pdf, out float3 weight, out uint lobe, out float lobeP, 
+#if !RecycleSelectSamples
+    float4 preGeneratedSample
+#else
+    float3 preGeneratedSample
+#endif
+    )
     {
         // Default initialization to avoid divergence at returns.
         wo = float3(0,0,0);
@@ -831,13 +850,20 @@ struct FalcorBSDF // : IBxDF
         lobeP = 0.0;
 
         bool valid = false;
-        float uSelect = sampleNext1D(sg);
+        float uSelect = preGeneratedSample.z;
+#if !RecycleSelectSamples
+        preGeneratedSample.z = preGeneratedSample.w;    // we've used .z for uSelect, shift left, .w is now unusable
+#endif
 
         // Note: The commented-out pdf contributions below are always zero, so no need to compute them.
 
         if (uSelect < pDiffuseReflection)
         {
-            valid = diffuseReflection.sample(wi, wo, pdf, weight, lobe, lobeP, sg);
+#if RecycleSelectSamples
+            preGeneratedSample.z = clamp(uSelect / pDiffuseReflection, 0, OneMinusEpsilon); // note, this gets compiled out because bsdf below does not need .z, however it has been tested and can be used in case of a new bsdf that might require it
+#endif
+            
+            valid = diffuseReflection.sample(wi, wo, pdf, weight, lobe, lobeP, preGeneratedSample.xyz);
             weight /= pDiffuseReflection;
             weight *= (1.f - specTrans) * (1.f - diffTrans);
             pdf *= pDiffuseReflection;
@@ -848,7 +874,7 @@ struct FalcorBSDF // : IBxDF
         }
         else if (uSelect < pDiffuseReflection + pDiffuseTransmission)
         {
-            valid = diffuseTransmission.sample(wi, wo, pdf, weight, lobe, lobeP, sg);
+            valid = diffuseTransmission.sample(wi, wo, pdf, weight, lobe, lobeP, preGeneratedSample.xyz);
             weight /= pDiffuseTransmission;
             weight *= (1.f - specTrans) * diffTrans;
             pdf *= pDiffuseTransmission;
@@ -859,7 +885,11 @@ struct FalcorBSDF // : IBxDF
         }
         else if (uSelect < pDiffuseReflection + pDiffuseTransmission + pSpecularReflection)
         {
-            valid = specularReflection.sample(wi, wo, pdf, weight, lobe, lobeP, sg);
+#if RecycleSelectSamples
+            preGeneratedSample.z = clamp((uSelect - (pDiffuseReflection + pDiffuseTransmission))/pSpecularReflection, 0, OneMinusEpsilon); // note, this gets compiled out because bsdf below does not need .z, however it has been tested and can be used in case of a new bsdf that might require it
+#endif
+
+            valid = specularReflection.sample(wi, wo, pdf, weight, lobe, lobeP, preGeneratedSample.xyz);
             weight /= pSpecularReflection;
             weight *= (1.f - specTrans);
             pdf *= pSpecularReflection;
@@ -870,7 +900,11 @@ struct FalcorBSDF // : IBxDF
         }
         else if (pSpecularReflectionTransmission > 0.f)
         {
-            valid = specularReflectionTransmission.sample(wi, wo, pdf, weight, lobe, lobeP, sg);
+#if RecycleSelectSamples
+            preGeneratedSample.z = clamp((uSelect - (pDiffuseReflection + pDiffuseTransmission + pSpecularReflection))/pSpecularReflectionTransmission, 0, OneMinusEpsilon);
+#endif
+
+            valid = specularReflectionTransmission.sample(wi, wo, pdf, weight, lobe, lobeP, preGeneratedSample.xyz);
             weight /= pSpecularReflectionTransmission;
             weight *= specTrans;
             pdf *= pSpecularReflectionTransmission;

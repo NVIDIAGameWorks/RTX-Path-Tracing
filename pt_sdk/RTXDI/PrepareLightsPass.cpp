@@ -229,38 +229,44 @@ static bool ConvertLight(const donut::engine::Light& light, PolymorphicLightInfo
         polymorphic.scalars = fp32ToFp16(halfAngularSizeRad) | (fp32ToFp16(solidAngle) << 16);
         return true;
     }
-    //Replace with SpotLightWithProfile eventually 
+ 
 	case LightType_Spot: {
 		auto& spot = static_cast<const SpotLight&>(light);
-		float projectedArea = dm::PI_f * square(spot.radius);
-		float3 radiance = spot.color * spot.intensity / projectedArea;
-		float softness = saturate(1.f - spot.innerAngle / spot.outerAngle);
 
-		polymorphic.colorTypeAndFlags = (uint32_t)PolymorphicLightType::kSphere << kPolymorphicLightTypeShift;
-		polymorphic.colorTypeAndFlags |= kPolymorphicLightShapingEnableBit;
-		packLightColor(radiance, polymorphic);
-		polymorphic.center = float3(spot.GetPosition());
-		polymorphic.scalars = fp32ToFp16(spot.radius);
-		polymorphic.primaryAxis = packNormalizedVector(float3(normalize(spot.GetDirection())));
-		polymorphic.cosConeAngleAndSoftness = fp32ToFp16(cosf(dm::radians(spot.outerAngle)));
-		polymorphic.cosConeAngleAndSoftness |= fp32ToFp16(softness) << 16;
+        // Sphere lights not supported in the PTSDK currently
+        if (spot.radius == 0.f)
+        {
+			float3 flux = spot.color * spot.intensity;
 
-        //Use the same path as PolymorphicLightType::kPoint
-		//auto& spot = static_cast<const SpotLight&>(light);
-		//float projectedArea = dm::PI_f * square(spot.radius);
-        //float3 radiance = spot.color * spot.intensity;// / projectedArea;
-		//float softness = saturate(1.f - spot.innerAngle / spot.outerAngle);
+			polymorphic.colorTypeAndFlags = (uint32_t)PolymorphicLightType::kPoint << kPolymorphicLightTypeShift;
+			packLightColor(flux, polymorphic);
+			polymorphic.center = float3(spot.GetPosition());
+            polymorphic.direction1 = packNormalizedVector(float3(normalize(spot.GetDirection())));
+            polymorphic.direction2 = fp32ToFp16(dm::radians(spot.outerAngle));
+			polymorphic.direction2 |= fp32ToFp16(dm::radians(spot.innerAngle)) << 16;
+        }
+        else
+        {
 
-		//polymorphic.colorTypeAndFlags = (uint32_t)PolymorphicLightType::kPoint << kPolymorphicLightTypeShift;
+            float projectedArea = dm::PI_f * square(spot.radius);
+            float3 radiance = spot.color * spot.intensity / projectedArea;
+            float softness = saturate(1.f - spot.innerAngle / spot.outerAngle);
 
-		//packLightColor(radiance, polymorphic);
-		//polymorphic.center = float3(spot.GetPosition());
-		//polymorphic.scalars = fp32ToFp16(spot.radius);
-		//polymorphic.direction2 = fp32ToFp16(dm::radians(spot.outerAngle)) | fp32ToFp16(dm::radians(spot.innerAngle)) << 16;
-		
+            polymorphic.colorTypeAndFlags = (uint32_t)PolymorphicLightType::kSphere << kPolymorphicLightTypeShift;
+            polymorphic.colorTypeAndFlags |= kPolymorphicLightShapingEnableBit;
+            packLightColor(radiance, polymorphic);
+            polymorphic.center = float3(spot.GetPosition());
+            polymorphic.scalars = fp32ToFp16(spot.radius);
+            polymorphic.primaryAxis = packNormalizedVector(float3(normalize(spot.GetDirection())));
+            polymorphic.cosConeAngleAndSoftness = fp32ToFp16(cosf(dm::radians(spot.outerAngle)));
+            polymorphic.cosConeAngleAndSoftness |= fp32ToFp16(softness) << 16;
+        }
+
+      
 		return true;
 	}
    /* case LightType_Spot: {
+   *    // Spot Light with ies profile
         auto& spot = static_cast<const SpotLightWithProfile&>(light);
         float projectedArea = dm::PI_f * square(spot.radius);
         float3 radiance = spot.color * spot.intensity / projectedArea;
@@ -285,6 +291,7 @@ static bool ConvertLight(const donut::engine::Light& light, PolymorphicLightInfo
     }*/
     case LightType_Point: {
         auto& point = static_cast<const donut::engine::PointLight&>(light);
+     
         if (point.radius == 0.f)
         {
             float3 flux = point.color * point.intensity;
@@ -293,7 +300,7 @@ static bool ConvertLight(const donut::engine::Light& light, PolymorphicLightInfo
             packLightColor(flux, polymorphic);
             polymorphic.center = float3(point.GetPosition());
             // Set the default values so we can use the same path for spot lights 
-            polymorphic.direction1 = fp32ToFp16(dm::PI_f) | fp32ToFp16(0.0f) << 16;
+            polymorphic.direction2 = fp32ToFp16(dm::PI_f) | fp32ToFp16(0.0f) << 16;
         }
         else
         {
@@ -314,14 +321,8 @@ static bool ConvertLight(const donut::engine::Light& light, PolymorphicLightInfo
         {
             auto& env = static_cast<const EnvironmentLight&>(light);
 
-            /*if (env.textureIndex < 0) //accounts for the envmap being loaded into the texture pool. We don't do this
-                return false;*/
-
             polymorphic.colorTypeAndFlags = (uint32_t)PolymorphicLightType::kEnvironment << kPolymorphicLightTypeShift;
-         /*   packLightColor(env.radianceScale, polymorphic);
-            polymorphic.direction1 = (uint32_t)env.textureIndex;
-            polymorphic.scalars = fp32ToFp16(env.rotation);
-            polymorphic.scalars |= (1 << 16);*/
+        
             const uint2 envMapDimensions = environmentMap->GetEnvMapDimensions();
             polymorphic.direction2 = envMapDimensions.x | (envMapDimensions.y << 16);
 
@@ -329,56 +330,6 @@ static bool ConvertLight(const donut::engine::Light& light, PolymorphicLightInfo
         }
         return false;
     }
-
-    /*case LightType_Cylinder: {
-        auto& cylinder = static_cast<const CylinderLight&>(light);
-        float surfaceArea = 2.f * dm::PI_f * cylinder.radius * cylinder.length;
-        float3 radiance = cylinder.color * cylinder.flux / surfaceArea;
-
-        polymorphic.colorTypeAndFlags = (uint32_t)PolymorphicLightType::kCylinder << kPolymorphicLightTypeShift;
-        packLightColor(radiance, polymorphic); 
-        polymorphic.center = float3(cylinder.GetPosition());
-        polymorphic.scalars = fp32ToFp16(cylinder.radius) | (fp32ToFp16(cylinder.length) <<  16);
-        polymorphic.direction1 = packNormalizedVector(float3(normalize(cylinder.GetDirection())));
-
-        return true;
-    }
-    case LightType_Disk: {
-        auto& disk = static_cast<const DiskLight&>(light);
-        float surfaceArea = 2.f * dm::PI_f * dm::square(disk.radius);
-        float3 radiance = disk.color * disk.flux / surfaceArea;
-
-        polymorphic.colorTypeAndFlags = (uint32_t)PolymorphicLightType::kDisk << kPolymorphicLightTypeShift;
-        packLightColor(radiance, polymorphic);
-        polymorphic.center = float3(disk.GetPosition());
-        polymorphic.scalars = fp32ToFp16(disk.radius);
-        polymorphic.direction1 = packNormalizedVector(float3(normalize(disk.GetDirection())));
-
-        return true;
-    }
-    case LightType_Rect: {
-        auto& rect = static_cast<const RectLight&>(light);
-        float surfaceArea = rect.width * rect.height;
-        float3 radiance = rect.color * rect.flux / surfaceArea;
-
-        auto node = rect.GetNode();
-        affine3 localToWorld = affine3::identity();
-        if (node)
-            localToWorld = node->GetLocalToWorldTransformFloat();
-
-        float3 right = normalize(localToWorld.m_linear.row0);
-        float3 up = normalize(localToWorld.m_linear.row1);
-        float3 normal = normalize(-localToWorld.m_linear.row2);
-
-        polymorphic.colorTypeAndFlags = (uint32_t)PolymorphicLightType::kRect << kPolymorphicLightTypeShift;
-        packLightColor(radiance, polymorphic);
-        polymorphic.center = float3(rect.GetPosition());
-        polymorphic.scalars = fp32ToFp16(rect.width) | (fp32ToFp16(rect.height) << 16);
-        polymorphic.direction1 = packNormalizedVector(normalize(right));
-        polymorphic.direction2 = packNormalizedVector(normalize(up));
-
-        return true;
-    }*/
     default:
         return false;
     }

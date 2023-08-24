@@ -25,6 +25,8 @@ StructuredBuffer<GeometryDebugData> t_GeometryDebugData     : register(t4);
 StructuredBuffer<MaterialConstants> t_MaterialConstants     : register(t5);
 Texture2D<float4> t_EnvironmentMap                          : register(t6);
 Texture2D<float> t_ImportanceMap                            : register(t7);
+Buffer<uint2>    t_PresampledEnvMapBuffer                   : register(t8);
+
 
 SamplerState s_MaterialSampler                              : register(s0);
 SamplerState s_EnvironmentMapSampler                        : register(s1);

@@ -21,7 +21,7 @@
 #ifndef __LIGHT_HELPERS_PARAMS__ // using instead of "#pragma once" due to https://github.com/microsoft/DirectXShaderCompiler/issues/3943
 #define __LIGHT_HELPERS_PARAMS__
 
-#include "../../Config.hlsli"
+#include "../../Config.h"
 
 #include "../../Utils/Math/MathConstants.hlsli"
 #include "LightData.hlsli"

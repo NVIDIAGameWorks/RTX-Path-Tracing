@@ -1,3 +1,0 @@
-<config remotes="cloudfront">
-    <remote name="cloudfront" type="https" packageLocation="d4i3qtqj3r0z5.cloudfront.net/${name}@${version}" />
-</config>

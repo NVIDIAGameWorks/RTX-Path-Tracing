@@ -18,6 +18,7 @@
 #include <donut/engine/SceneTypes.h>
 
 using namespace donut::math;
+#include "../PathTracer/Config.h"
 #include "../PathTracer/PathTracerShared.h"
 
 namespace donut::engine
@@ -66,6 +67,13 @@ struct EnvironmentMapImportanceSamplingParameters
 		EnvMapSamplerData m_EnvMapSamplerData;
 		uint2 m_EnvMapDimensions;
 
+        // envmap presampling
+        nvrhi::BufferHandle             m_PresampledBuffer;
+        nvrhi::ShaderHandle             m_PresamplingCS;
+        nvrhi::BindingSetHandle         m_PresamplingBindingSet;
+        nvrhi::BindingLayoutHandle      m_PresamplingBindingLayout;
+        nvrhi::ComputePipelineHandle    m_PresamplingPipeline;
+
 		void CreateImportanceMap(const uint32_t dimensions, const uint32_t samples);
 		void GenerateImportanceMap(nvrhi::CommandListHandle commandList, const uint32_t dimensions, const uint32_t samples);
 	public:
@@ -84,10 +92,13 @@ struct EnvironmentMapImportanceSamplingParameters
 			nvrhi::CommandListHandle commandList,
 			bool enableImportanceMap = true);*/
 
+		inline const bool IsEnvMapLoaded() { return m_EnvironmentMapTexture != nullptr; }
+		inline const bool IsImportanceMapLoaded() { return m_ImportanceMapTexture != nullptr; }
 		nvrhi::TextureHandle GetEnvironmentMap();
 		nvrhi::TextureHandle GetImportanceMap();
 		nvrhi::SamplerHandle GetEnvironmentSampler();
 		nvrhi::SamplerHandle GetImportanceSampler();
+        nvrhi::BufferHandle GetPresampledBuffer();
 		void SetConstantData(float intensity, float3 tintColor, float3 rotation, 
 			EnvMapData& envMapData, EnvMapSamplerData& envMapSamplerData);
 		float2 GetImportanceMapInverseDimensions();
@@ -95,6 +106,8 @@ struct EnvironmentMapImportanceSamplingParameters
 		EnvMapData GetEnvMapData();
 		inline const uint2 GetEnvMapDimensions() { return m_EnvMapDimensions; }
 		void Reset();
-	};
+
+        void ExecutePresampling(nvrhi::CommandListHandle commandList, int sampleIndex);
+    };
 
 //}

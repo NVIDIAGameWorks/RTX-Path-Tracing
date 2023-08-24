@@ -11,7 +11,7 @@
 #ifndef __HIT_INFO_HLSLI__ // using instead of "#pragma once" due to https://github.com/microsoft/DirectXShaderCompiler/issues/3943
 #define __HIT_INFO_HLSLI__
 
-#include "../Config.hlsli"
+#include "../Config.h"
 
 #include "SceneDefines.hlsli"
 #include "HitInfoType.hlsli"

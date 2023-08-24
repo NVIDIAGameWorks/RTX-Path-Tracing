@@ -8,6 +8,8 @@
 * license agreement from NVIDIA CORPORATION is strictly prohibited.
 */
 
+#include "Scene/Lights/EnvMapData.hlsli"
+
 #ifndef __PATH_TRACER_SHARED_H__
 #define __PATH_TRACER_SHARED_H__
 
@@ -43,8 +45,13 @@ struct PathTracerConstants
 {
     uint    imageWidth;
     uint    imageHeight;
-    uint    sampleIndex;
+    uint    sampleBaseIndex;                // to get the 'actual' sample index, one needs to add subSampleIndex (in case ActualSamplesPerPixel() > 0)
     int     enablePerPixelJitterAA;         // this is for future blue noise and/or similar experimentation; at the moment we use constant (per frame) jitter which is set to camera
+
+    uint    subSampleCount;                 // the number of sub samples - used in RealTime mode, spawned from primary surface; always 1 for reference mode
+    float   invSubSampleCount;              // used to attenuate noisy radiance during multi-sampling (non-noisy stuff like direct sky does not need attenuation!); always 1 for reference mode
+    uint    _padding0;
+    uint    _padding1;
 
     uint    bounceCount;
     uint    diffuseBounceCount;
@@ -67,7 +74,7 @@ struct PathTracerConstants
     float   stablePlanesSuppressPrimaryIndirectSpecularK;
 
     float   denoiserRadianceClampK;
-    uint    padding1;
+    uint    _padding2;
     float   stablePlanesAntiAliasingFallthrough;
     uint    activeStablePlaneCount;
 
@@ -75,6 +82,16 @@ struct PathTracerConstants
     uint    allowPrimarySurfaceReplacement;
     uint    genericTSLineStride;  // used for u_SurfaceData
     uint    genericTSPlaneStride; // used for u_SurfaceData
+
+    uint    NEEEnabled;
+    uint    NEEDistantType;
+    uint    NEEDistantCandidateSamples;
+    uint    NEEDistantFullSamples;
+
+    float   NEEMinRadianceThreshold;
+    uint    NEELocalType;
+    uint    NEELocalCandidateSamples;
+    uint    NEELocalFullSamples;
 
     PathTracerCameraData camera;
     PathTracerCameraData prevCamera;
@@ -115,26 +132,6 @@ inline PathTracerCameraData BridgeCamera( uint viewportWidth, uint viewportHeigh
     return data;
 }
 #endif // __cplusplus
-
-//Const buffer structs 
-// From ..\Falcor\Source\Falcor\Scene\Lights\EnvMapData.hlsli
-// default values removed 
-struct EnvMapData
-{
-	float3x4    transform;              ///< Local to world transform.
-	float3x4    invTransform;           ///< World to local transform.
-
-    float3      tint;                   ///< Color tint
-    float       intensity;              ///< Radiance scale
-};
-
-// From ..\Falcor\Source\Falcor\Rendering\Lights\EnvMapSampler.hlsli
-struct EnvMapSamplerData
-{
-    float2      importanceInvDim;       ///< 1.0 / dimension.
-    uint        importanceBaseMip;      ///< Mip level for 1x1 resolution.
-    float       _padding0;
-};
 
 inline float3  DbgShowNormalSRGB(float3 normal)
 {

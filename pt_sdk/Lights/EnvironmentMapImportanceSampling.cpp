@@ -51,20 +51,59 @@ EnvironmentMap::EnvironmentMap(nvrhi::IDevice* device,
 	samplerDesc.setAllAddressModes(nvrhi::SamplerAddressMode::Clamp);
 	m_ImportanceMapSampler = m_Device->createSampler(samplerDesc);
 
-	nvrhi::BindingLayoutDesc layoutDesc;
-	layoutDesc.visibility = nvrhi::ShaderType::Compute;
-	layoutDesc.bindings = {
-		nvrhi::BindingLayoutItem::VolatileConstantBuffer(0),
-		nvrhi::BindingLayoutItem::Texture_SRV(0),
-		nvrhi::BindingLayoutItem::Texture_UAV(0),
-		nvrhi::BindingLayoutItem::Sampler(0)
-	};
-	m_ImportanceMapBindingLayout = m_Device->createBindingLayout(layoutDesc);
+    {
+	    nvrhi::BindingLayoutDesc layoutDesc;
+	    layoutDesc.visibility = nvrhi::ShaderType::Compute;
+	    layoutDesc.bindings = {
+		    nvrhi::BindingLayoutItem::VolatileConstantBuffer(0),
+		    nvrhi::BindingLayoutItem::Texture_SRV(0),
+		    nvrhi::BindingLayoutItem::Texture_UAV(0),
+		    nvrhi::BindingLayoutItem::Sampler(0)
+	    };
+	    m_ImportanceMapBindingLayout = m_Device->createBindingLayout(layoutDesc);
 
-	nvrhi::ComputePipelineDesc pipelineDesc;
-	pipelineDesc.setComputeShader(m_ImportanceMapComputeShader);
-	pipelineDesc.addBindingLayout(m_ImportanceMapBindingLayout);
-	m_ImportanceMapPipeline = m_Device->createComputePipeline(pipelineDesc);
+	    nvrhi::ComputePipelineDesc pipelineDesc;
+	    pipelineDesc.setComputeShader(m_ImportanceMapComputeShader);
+	    pipelineDesc.addBindingLayout(m_ImportanceMapBindingLayout);
+	    m_ImportanceMapPipeline = m_Device->createComputePipeline(pipelineDesc);
+    }
+
+    // Stuff for presampling goes below
+    m_PresamplingCS = m_ShaderFactory->CreateShader("app/PathTracer/Scene/Lights/EnvMapPresampling.hlsl", "main", nullptr, nvrhi::ShaderType::Compute);
+    assert(m_PresamplingCS);
+
+    {
+        nvrhi::BindingLayoutDesc layoutDesc;
+        layoutDesc.visibility = nvrhi::ShaderType::Compute;
+        layoutDesc.bindings = {
+            nvrhi::BindingLayoutItem::VolatileConstantBuffer(0),
+            nvrhi::BindingLayoutItem::Texture_SRV(0),
+            nvrhi::BindingLayoutItem::Texture_SRV(1),
+            nvrhi::BindingLayoutItem::TypedBuffer_UAV(0),
+            nvrhi::BindingLayoutItem::Sampler(0),
+            nvrhi::BindingLayoutItem::Sampler(1)
+        };
+        m_PresamplingBindingLayout = m_Device->createBindingLayout(layoutDesc);
+
+        nvrhi::ComputePipelineDesc pipelineDesc;
+        pipelineDesc.setComputeShader(m_PresamplingCS);
+        pipelineDesc.addBindingLayout(m_PresamplingBindingLayout);
+        m_PresamplingPipeline = m_Device->createComputePipeline(pipelineDesc);
+    }
+
+    {
+        // buffer that stores pre-generated samples which get updated once per frame
+        nvrhi::BufferDesc buffDesc;
+        buffDesc.byteSize = sizeof(uint32_t) * 2 * std::max(ENVMAP_PRESAMPLED_COUNT, 1u); // RG32_UINT (2 UINTs) per element
+        buffDesc.format = nvrhi::Format::RG32_UINT;
+        buffDesc.canHaveTypedViews = true;
+        buffDesc.initialState = nvrhi::ResourceStates::ShaderResource;
+        buffDesc.keepInitialState = true;
+        buffDesc.debugName = "PresampledEnvironmentSamples";
+        buffDesc.canHaveUAVs = true;
+        m_PresampledBuffer = m_Device->createBuffer(buffDesc);
+        assert(m_PresampledBuffer);
+    }
 }
 
 void EnvironmentMap::LoadTexture(const std::filesystem::path& path,
@@ -125,6 +164,11 @@ nvrhi::SamplerHandle EnvironmentMap::GetImportanceSampler()
 	return m_ImportanceMapSampler;
 }
 
+nvrhi::BufferHandle EnvironmentMap::GetPresampledBuffer() 
+{ 
+    return m_PresampledBuffer; 
+}
+
 void EnvironmentMap::Reset()
 {
 	if (m_EnvironmentMapTexture)
@@ -171,8 +215,6 @@ void EnvironmentMap::CreateImportanceMap(const uint32_t dimensions, const uint32
 	texDesc.setInitialState(nvrhi::ResourceStates::UnorderedAccess);
 	texDesc.keepInitialState = true;
 	m_ImportanceMapTexture = m_Device->createTexture(texDesc);
-	 
-	assert(m_ImportanceMapTexture);
 
 	m_MipMapPass = std::make_unique<MipMapGenPass>(m_Device, m_ShaderFactory, m_ImportanceMapTexture, MipMapGenPass::MODE_COLOR);
 }
@@ -206,6 +248,9 @@ void EnvironmentMap::GenerateImportanceMap(nvrhi::CommandListHandle commandList,
 	constants.outputDimInSamples = uint2(dimensions * samplesX, dimensions * samplesY);
 	constants.numSamples = uint2(samplesX, samplesY);
 	constants.invSamples = 1.f / (samplesX * samplesY);
+    constants.envMapData = {};
+    constants.envMapSamplerData = {};
+    constants.sampleIndex = 0;
 	
 	commandList->open();
 	commandList->writeBuffer(m_ImportanceMapCB, &constants, sizeof(EnvironmentMapImportanceSamplingConstants));
@@ -236,3 +281,46 @@ EnvMapData EnvironmentMap::GetEnvMapData()
 	return m_EnvMapData;
 }
 
+void EnvironmentMap::ExecutePresampling(nvrhi::CommandListHandle commandList, int sampleIndex)
+{
+    assert(m_PresampledBuffer);
+
+    if (!m_PresamplingBindingSet)
+    {
+        nvrhi::BindingSetDesc bindingSetDesc;
+        bindingSetDesc.bindings = {
+            nvrhi::BindingSetItem::ConstantBuffer(0, m_ImportanceMapCB),
+            nvrhi::BindingSetItem::Texture_SRV(0, m_EnvironmentMapTexture->texture),
+            nvrhi::BindingSetItem::Texture_SRV(1, m_ImportanceMapTexture),
+            nvrhi::BindingSetItem::TypedBuffer_UAV(0, m_PresampledBuffer),
+            nvrhi::BindingSetItem::Sampler(0, m_EnvironmentMapSampler),
+            nvrhi::BindingSetItem::Sampler(1, m_ImportanceMapSampler),
+        };
+        m_PresamplingBindingSet = m_Device->createBindingSet(bindingSetDesc, m_PresamplingBindingLayout);
+    }
+
+    uint32_t samplesX = std::max(1u, (uint32_t)std::sqrt(kDefaultSpp));
+    uint32_t samplesY = kDefaultSpp / samplesX;
+
+    // Update envmap sampling buffer
+    EnvironmentMapImportanceSamplingConstants constants = {};
+    constants.outputDim = kDefaultDimension;
+    constants.outputDimInSamples = uint2(kDefaultDimension * samplesX, kDefaultDimension * samplesY);
+    constants.numSamples = uint2(samplesX, samplesY);
+    constants.invSamples = 1.f / (samplesX * samplesY);
+    constants.envMapData = m_EnvMapData;
+    constants.envMapSamplerData = m_EnvMapSamplerData;
+    constants.sampleIndex = sampleIndex;
+    commandList->writeBuffer(m_ImportanceMapCB, &constants, sizeof(EnvironmentMapImportanceSamplingConstants));
+
+    // Execute presampling
+    nvrhi::ComputeState state;
+    state.pipeline = m_PresamplingPipeline;
+    state.bindings = { m_PresamplingBindingSet };
+    commandList->setComputeState(state);
+    
+    static_assert( (ENVMAP_PRESAMPLED_COUNT % 256) == 0 );
+    uint32_t groupCount = ENVMAP_PRESAMPLED_COUNT / 256;
+
+    commandList->dispatch(groupCount);
+}

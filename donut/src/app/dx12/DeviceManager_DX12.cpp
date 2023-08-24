@@ -325,6 +325,15 @@ bool DeviceManager_DX12::CreateDeviceAndSwapChain()
         pDebug->EnableDebugLayer();
     }
 
+    if (m_DeviceParams.enableGPUValidation)
+    {
+        RefCountPtr<ID3D12Debug3> debugController3;
+        hr = D3D12GetDebugInterface(IID_PPV_ARGS(&debugController3));
+        HR_RETURN(hr);
+
+        debugController3->SetEnableGPUBasedValidation(TRUE);
+    }
+
     RefCountPtr<IDXGIFactory2> pDxgiFactory;
     UINT dxgiFactoryFlags = m_DeviceParams.enableDebugRuntime ? DXGI_CREATE_FACTORY_DEBUG : 0;
     hr = CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&pDxgiFactory));
@@ -372,7 +381,7 @@ bool DeviceManager_DX12::CreateDeviceAndSwapChain()
                 D3D12_MESSAGE_ID_CLEARDEPTHSTENCILVIEW_MISMATCHINGCLEARVALUE,
                 D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE,
                 D3D12_MESSAGE_ID_COMMAND_LIST_STATIC_DESCRIPTOR_RESOURCE_DIMENSION_MISMATCH, // descriptor validation doesn't understand acceleration structures
-                
+                D3D12_MESSAGE_ID_EXECUTECOMMANDLISTS_GPU_WRITTEN_READBACK_RESOURCE_MAPPED,  // not sure why this even exists since the use case is totally legit (see https://docs.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12resource-map#advanced-usage-models, or comments in https://docs.microsoft.com/en-us/windows/win32/direct3d12/readback-data-using-heaps)               
             };
 
             // D3D12 WARNING: ID3D12Device::CreateCommittedResource: Ignoring InitialState X. Buffers are effectively created in state D3D12_RESOURCE_STATE_COMMON.

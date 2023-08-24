@@ -1076,7 +1076,7 @@ void Scene::CreateMeshBuffers(nvrhi::ICommandList* commandList)
             bufferDesc.canHaveUAVs = true;
             bufferDesc.isAccelStructBuildInput = m_RayTracingSupported;
             bufferDesc.keepInitialState = true;
-            bufferDesc.initialState = nvrhi::ResourceStates::VertexBuffer;
+            bufferDesc.initialState = nvrhi::ResourceStates::Common;
 
             skinnedBuffers->vertexBuffer = m_Device->createBuffer(bufferDesc);
 

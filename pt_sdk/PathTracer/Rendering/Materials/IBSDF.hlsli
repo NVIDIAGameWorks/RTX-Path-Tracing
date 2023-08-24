@@ -11,7 +11,7 @@
 #ifndef __IBSDF_HLSLI__ // using instead of "#pragma once" due to https://github.com/microsoft/DirectXShaderCompiler/issues/3943
 #define __IBSDF_HLSLI__
 
-#include "../../Config.hlsli"    
+#include "../../Config.h"    
 #include "Microfacet.hlsli"
 #include "LobeType.hlsli"
 
@@ -149,7 +149,7 @@ interface IBSDF
         \param[in,out] sg Sample generator.
         \return Returns f(wi, wo) * dot(wo, n).
     */
-    float3 eval<S : ISampleGenerator>(const ShadingData sd, const float3 wo, inout S sg);
+    float3 eval<S : ISampleGenerator>(const ShadingData shadingData, const float3 wo, inout S sg);
 
     /** Samples the BSDF.
         \param[in] sd Shading data.
@@ -158,7 +158,7 @@ interface IBSDF
         \param[in] useImportanceSampling Hint to use importance sampling, else default to reference implementation if available.
         \return True if a sample was generated, false otherwise.
     */
-    bool sample<S : ISampleGenerator>(const ShadingData sd, inout S sg, out BSDFSample result, bool useImportanceSampling = true);
+    bool sample<S : ISampleGenerator>(const ShadingData shadingData, inout S sg, out BSDFSample result, bool useImportanceSampling = true);
 
     /** Evaluates the directional pdf for sampling the given direction.
         \param[in] sd Shading data.
@@ -166,22 +166,22 @@ interface IBSDF
         \param[in] useImportanceSampling Hint to use importance sampling, else default to reference implementation if available.
         \return PDF with respect to solid angle for sampling direction wo (0 for delta events).
     */
-    float evalPdf(const ShadingData sd, const float3 wo, bool useImportanceSampling = true);
+    float evalPdf(const ShadingData shadingData, const float3 wo, bool useImportanceSampling = true);
 
     /** Return BSDF properties.
         \param[in] sd Shading data.
         \return A struct with properties.
     */
-    BSDFProperties getProperties(const ShadingData sd);
+    BSDFProperties getProperties(const ShadingData shadingData);
 
     /** Return the set of available BSDF lobes.
         \param[in] sd Shading data.
         \return A combination of LobeType flags (see LobeType.hlsli).
     */
-    uint getLobes(const ShadingData sd);
+    uint getLobes(const ShadingData shadingData);
 
     // TODO add and explain - see StandardBSDF::evalDeltaLobes
-    // void evalDeltaLobes(const ShadingData sd, inout DeltaLobe deltaLobes[cMaxDeltaLobes], inout int deltaLobeCount, inout float nonDeltaPart)
+    // void evalDeltaLobes(const ShadingData shadingData, inout DeltaLobe deltaLobes[cMaxDeltaLobes], inout int deltaLobeCount, inout float nonDeltaPart)
 
 }
 

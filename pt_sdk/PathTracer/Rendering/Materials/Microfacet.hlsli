@@ -106,7 +106,13 @@ float3 sampleGGX_VNDF(float alpha, float3 wi, float2 u, out float pdf)
     float3 Vh = normalize(float3(alpha_x * wi.x, alpha_y * wi.y, wi.z));
 
     // Construct orthonormal basis (Vh,T1,T2).
+#if 0
     float3 T1 = (Vh.z < 0.9999f) ? normalize(cross(float3(0, 0, 1), Vh)) : float3(1, 0, 0); // TODO: fp32 precision
+#else   
+    // from latest http://jcgt.org/published/0007/04/01/paper.pdf - fewer instructions than above; 0.0002 threshold found empirically and matches above variant
+    float lensq = Vh.x * Vh.x + Vh.y * Vh.y;
+    float3 T1 = lensq > 0.0002f ? float3(-Vh.y, Vh.x, 0) * rsqrt(lensq) : float3(1,0,0);
+#endif
     float3 T2 = cross(Vh, T1);
 
     // Parameterization of the projected area of the hemisphere.

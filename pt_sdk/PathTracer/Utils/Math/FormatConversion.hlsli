@@ -11,7 +11,7 @@
 #ifndef __FORMAT_CONVERSION_HLSLI__ // using instead of "#pragma once" due to https://github.com/microsoft/DirectXShaderCompiler/issues/3943
 #define __FORMAT_CONVERSION_HLSLI__
 
-#include "../../Config.hlsli"    
+#include "../../Config.h"    
 
 /** Utility code for converting between various packed formats.
 

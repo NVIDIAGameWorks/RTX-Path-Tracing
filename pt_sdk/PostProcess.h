@@ -82,7 +82,7 @@ public:
         //, std::shared_ptr<engine::FramebufferFactory> colorFramebufferFactory
     );
 
-    void Apply(nvrhi::ICommandList* commandList, RenderPassType passType, nvrhi::BufferHandle consts, nvrhi::BufferHandle miniConsts, nvrhi::IFramebuffer* targetFramebuffer, RenderTargets & renderTargets, nvrhi::ITexture* sourceTexture);
-    void Apply(nvrhi::ICommandList* commandList, ComputePassType passType, nvrhi::BufferHandle consts, nvrhi::BufferHandle miniConsts, nvrhi::BindingSetHandle bindingSet, nvrhi::BindingLayoutHandle bindingLayout, uint32_t width, uint32_t height);
-    void Apply(nvrhi::ICommandList* commandList, ComputePassType passType, int pass, nvrhi::BufferHandle consts, nvrhi::BufferHandle miniConsts, nvrhi::ITexture* workTexture, RenderTargets & renderTargets, nvrhi::ITexture* sourceTexture);
+    void Apply(nvrhi::ICommandList* commandList, RenderPassType passType, nvrhi::BufferHandle consts, SampleMiniConstants & miniConsts, nvrhi::IFramebuffer* targetFramebuffer, RenderTargets & renderTargets, nvrhi::ITexture* sourceTexture);
+    void Apply(nvrhi::ICommandList* commandList, ComputePassType passType, nvrhi::BufferHandle consts, SampleMiniConstants & miniConsts, nvrhi::BindingSetHandle bindingSet, nvrhi::BindingLayoutHandle bindingLayout, uint32_t width, uint32_t height);
+    void Apply(nvrhi::ICommandList* commandList, ComputePassType passType, int pass, nvrhi::BufferHandle consts, SampleMiniConstants & miniConsts, nvrhi::ITexture* workTexture, RenderTargets & renderTargets, nvrhi::ITexture* sourceTexture);
 };

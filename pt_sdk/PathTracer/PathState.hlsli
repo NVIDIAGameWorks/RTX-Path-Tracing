@@ -13,7 +13,7 @@
 
 #define PATH_STATE_DEFINED
 
-#include "Config.hlsli"    
+#include "Config.h"    
 #include "Sampling.hlsli"    
 
 #include "Scene/HitInfo.hlsli"
@@ -44,12 +44,12 @@ enum class PathFlags
     delta                           = (1<<4),   ///< Scatter ray went through a delta event.
 
     insideDielectricVolume          = (1<<5),   ///< Path vertex is inside a dielectric volume.
-    lightSampledUpper               = (1<<6),   ///< Last path vertex sampled lights using NEE (in upper hemisphere).
-    lightSampledLower               = (1<<7),   ///< Last path vertex sampled lights using NEE (in lower hemisphere).
+    //<removed, empty space>          = (1<<6),   ///<
+    //<removed, empty space>          = (1<<7),   ///<
 
     diffusePrimaryHit               = (1<<8),   ///< Scatter ray went through a diffuse event on primary hit.
     specularPrimaryHit              = (1<<9),   ///< Scatter ray went through a specular event on primary hit.
-    lightSampledReSTIR              = (1<<10),  ///< In parallel to lightSampledUpper/lightSampledLower, ReSTIR was used to sample light for NEE in the last path vertex.
+    //<removed, empty space>          = (1<<10),  ///<
     deltaTransmissionPath           = (1<<11),  ///< Path started with and followed delta transmission events (whenever possible - TIR could be an exception) until it hit the first non-delta event.
     deltaOnlyPath                   = (1<<12),  ///< There was no non-delta events along the path so far.
 
@@ -70,9 +70,10 @@ enum class PathFlags
 */
 enum class PackedCounters // each packed to 8 bits, 4 max fits in 32bit uint
 {
-    DiffuseBounces          = 0,    ///< Diffuse reflection.
-    RejectedHits            = 1,    ///< Number of false intersections rejected along the path. This is used as a safeguard to avoid deadlock in pathological cases.
-    BouncesFromStablePlane  = 2,    ///< Number of bounces after the last stable plane the path was on (path.vertexIndex - currentStablePlaneVertexIndex)
+    DiffuseBounces              = 0,    ///< Diffuse reflection.
+    RejectedHits                = 1,    ///< Number of false intersections rejected along the path. This is used as a safeguard to avoid deadlock in pathological cases.
+    BouncesFromStablePlane      = 2,    ///< Number of bounces after the last stable plane the path was on (path.vertexIndex - currentStablePlaneVertexIndex)
+    SubSampleIndex              = 3     ///< Used when doing multiple (sub)samples per pixels: when the path gets terminated, this counter is incremented, and if still < 
 };
 
 // TODO: Compact encoding to reduce live registers, e.g. packed HitInfo, packed normals.
@@ -94,7 +95,10 @@ struct PathState
     // Scatter ray
     float3      origin;                 ///< Origin of the scatter ray.
     float3      dir;                    ///< Scatter ray normalized direction.
-    float       pdf;                    ///< Pdf for generating the scatter ray.
+    //float       pdf;                    ///< Pdf for generating the scatter ray.
+    
+    float       emissiveMISWeight;      ///< The BSDF MIS weight counterpart of NEE light sampling, computed after BSDF scatter when NEE active or just defaulting to 1.0 when NEE inactive
+    float       environmentMISWeight;   ///< The BSDF MIS weight counterpart of NEE light sampling, computed after BSDF scatter when NEE active or just defaulting to 1.0 when NEE inactive
 
     // removed until needed again for emissive triangle sampling MIS 
     // float3      normal;                 ///< Shading normal at the scatter ray origin.
@@ -131,15 +135,6 @@ struct PathState
     bool isDelta() { return hasFlag(PathFlags::delta); }
     bool isInsideDielectricVolume() { return hasFlag(PathFlags::insideDielectricVolume); }
 
-    bool isLightSampled()
-    {
-        const uint bits = ( ((uint)PathFlags::lightSampledUpper) | ((uint)PathFlags::lightSampledLower) ) << kVertexIndexBitCount;
-        return flagsAndVertexIndex & bits;
-    }
-
-    bool isLightSampledUpper() { return hasFlag(PathFlags::lightSampledUpper); }
-    bool isLightSampledLower() { return hasFlag(PathFlags::lightSampledLower); }
-
     bool isDiffusePrimaryHit() { return hasFlag(PathFlags::diffusePrimaryHit); }
     bool isSpecularPrimaryHit() { return hasFlag(PathFlags::specularPrimaryHit); }
     bool isDeltaTransmissionPath() { return hasFlag(PathFlags::deltaTransmissionPath); }
@@ -164,7 +159,6 @@ struct PathState
     void setSpecular(bool value = true) { setFlag(PathFlags::specular, value); }
     void setDelta(bool value = true) { setFlag(PathFlags::delta, value); }
     void setInsideDielectricVolume(bool value = true) { setFlag(PathFlags::insideDielectricVolume, value); }
-    void setLightSampled(bool upper, bool lower) { setFlag(PathFlags::lightSampledUpper, upper); setFlag(PathFlags::lightSampledLower, lower); }
     void setDiffusePrimaryHit(bool value = true) { setFlag(PathFlags::diffusePrimaryHit, value); }
     void setSpecularPrimaryHit(bool value = true) { setFlag(PathFlags::specularPrimaryHit, value); }
     void setDeltaTransmissionPath(bool value = true) { setFlag(PathFlags::deltaTransmissionPath, value); }

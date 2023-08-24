@@ -68,10 +68,8 @@ bool ReSTIRGIFinalContribution(const uint2 pixelPosition, const RAB_Surface surf
             finalRadiance = 0;
     }
     
-    SampleGenerator sg = (SampleGenerator)0; // Needed for bsdf.eval but not really used there
-
     float3 diffuseBrdf, specularBrdf;
-    surface.Eval(L, sg, diffuseBrdf, specularBrdf);
+    surface.Eval(L, diffuseBrdf, specularBrdf);
     
     diffuseContribution = 0; 
     specularContribution = 0;
@@ -83,12 +81,12 @@ bool ReSTIRGIFinalContribution(const uint2 pixelPosition, const RAB_Surface surf
         L0 /= hitDistance0;
 
         float3 diffuseBrdf0, specularBrdf0;
-        surface.Eval(L0, sg, diffuseBrdf0, specularBrdf0);
+        surface.Eval(L0, diffuseBrdf0, specularBrdf0);
 
         float3 roughDiffuseBrdf, roughSpecularBrdf;
         float3 roughDiffuseBrdf0, roughSpecularBrdf0;
-        surface.EvalRoughnessClamp(kMISRoughness, L, sg, roughDiffuseBrdf, roughSpecularBrdf);
-        surface.EvalRoughnessClamp(kMISRoughness, L0, sg, roughDiffuseBrdf0, roughSpecularBrdf0);
+        surface.EvalRoughnessClamp(kMISRoughness, L, roughDiffuseBrdf, roughSpecularBrdf);
+        surface.EvalRoughnessClamp(kMISRoughness, L0, roughDiffuseBrdf0, roughSpecularBrdf0);
 
         const float finalWeight = 1.0 - GetMISWeight(roughDiffuseBrdf + roughSpecularBrdf, diffuseBrdf + specularBrdf);
         const float initialWeight = GetMISWeight(roughDiffuseBrdf0 + roughSpecularBrdf0, diffuseBrdf0 + specularBrdf0);
@@ -118,7 +116,7 @@ bool ReSTIRGIFinalContribution(const uint2 pixelPosition, const RAB_Surface surf
     }
 
     DebugContext debug;
-    debug.Init( pixelPosition, 0, g_Const.debug, u_FeedbackBuffer, u_DebugLinesBuffer, u_DebugDeltaPathTree, u_DeltaPathSearchStack, u_DebugVizOutput );
+    debug.Init( pixelPosition, g_Const.debug, u_FeedbackBuffer, u_DebugLinesBuffer, u_DebugDeltaPathTree, u_DeltaPathSearchStack, u_DebugVizOutput );
 
     switch(g_Const.debug.debugViewType)
     {

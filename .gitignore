@@ -1,11 +1,8 @@
 bin/
 build*/
 .vs
-nvapi/
-/external/NVAPI
 nrd.cfg
 omm.cfg
-media/
 
 # local project files for shader development outside of VS
 *.sublime-*

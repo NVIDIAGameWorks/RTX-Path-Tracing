@@ -11,7 +11,7 @@
 #ifndef __STANDARD_BSDF_HLSLI__ // using instead of "#pragma once" due to https://github.com/microsoft/DirectXShaderCompiler/issues/3943
 #define __STANDARD_BSDF_HLSLI__
 
-#include "../../Config.hlsli"    
+#include "../../Config.h"    
 
 #include "../../Utils/Math/MathConstants.hlsli"
 #include "../../Utils/Math/MathHelpers.hlsli"
@@ -45,60 +45,64 @@ struct StandardBSDF // : IBSDF
     }
 
 #if PTSDK_DIFFUSE_SPECULAR_SPLIT
-    void eval(const ShadingData sd, const float3 wo, inout SampleGenerator sg, out float3 diffuse, out float3 specular)
+    void eval(const ShadingData shadingData, const float3 wo, out float3 diffuse, out float3 specular)
     {
-        float3 wiLocal = sd.toLocal(sd.V);
-        float3 woLocal = sd.toLocal(wo);
+        float3 wiLocal = shadingData.toLocal(shadingData.V);
+        float3 woLocal = shadingData.toLocal(wo);
 
-        FalcorBSDF bsdf = FalcorBSDF::make(sd, data);
+        FalcorBSDF bsdf = FalcorBSDF::make(shadingData, data);
 
-        bsdf.eval(wiLocal, woLocal, sg, diffuse, specular);
+        bsdf.eval(wiLocal, woLocal/*, sampleGenerator*/, diffuse, specular);
     }
 #endif
 
-    float3 eval(const ShadingData sd, const float3 wo, inout SampleGenerator sg)
+    float3 eval(const ShadingData shadingData, const float3 wo)
     {
-        float3 wiLocal = sd.toLocal(sd.V);
-        float3 woLocal = sd.toLocal(wo);
+        float3 wiLocal = shadingData.toLocal(shadingData.V);
+        float3 woLocal = shadingData.toLocal(wo);
 
-        FalcorBSDF bsdf = FalcorBSDF::make(sd, data);
+        FalcorBSDF bsdf = FalcorBSDF::make(shadingData, data);
 
 #if PTSDK_DIFFUSE_SPECULAR_SPLIT
         float3 diffuse, specular;
-        bsdf.eval(wiLocal, woLocal, sg, diffuse, specular);
+        bsdf.eval(wiLocal, woLocal/*, sampleGenerator*/, diffuse, specular);
         return diffuse+specular;
 #else
-        return bsdf.eval(wiLocal, woLocal, sg);
+        return bsdf.eval(wiLocal, woLocal, sampleGenerator);
 #endif
     }
 
-    bool sample(const ShadingData sd, inout SampleGenerator sg, out BSDFSample result, bool useImportanceSampling)
+    bool sample(const ShadingData shadingData, inout SampleGenerator sampleGenerator, out BSDFSample result, bool useImportanceSampling)
     {
-        if (!useImportanceSampling) return sampleReference(sd, sg, result);
+        if (!useImportanceSampling) return sampleReference(shadingData, sampleGenerator, result);
 
-        float3 wiLocal = sd.toLocal(sd.V);
+        float3 wiLocal = shadingData.toLocal(shadingData.V);
         float3 woLocal = float3(0,0,0);
 
-        FalcorBSDF bsdf = FalcorBSDF::make(sd, data);
-        bool valid = bsdf.sample(wiLocal, woLocal, result.pdf, result.weight, result.lobe, result.lobeP, sg);
-        result.wo = sd.fromLocal(woLocal);
+        FalcorBSDF bsdf = FalcorBSDF::make(shadingData, data);
+#if RecycleSelectSamples
+        bool valid = bsdf.sample(wiLocal, woLocal, result.pdf, result.weight, result.lobe, result.lobeP, sampleNext3D(sampleGenerator));
+#else
+        bool valid = bsdf.sample(wiLocal, woLocal, result.pdf, result.weight, result.lobe, result.lobeP, sampleNext4D(sampleGenerator));
+#endif
+        result.wo = shadingData.fromLocal(woLocal);
 
         return valid;
     }
 
-    float evalPdf(const ShadingData sd, const float3 wo, bool useImportanceSampling)
+    float evalPdf(const ShadingData shadingData, const float3 wo, bool useImportanceSampling)
     {
-        if (!useImportanceSampling) return evalPdfReference(sd, wo);
+        if (!useImportanceSampling) return evalPdfReference(shadingData, wo);
 
-        float3 wiLocal = sd.toLocal(sd.V);
-        float3 woLocal = sd.toLocal(wo);
+        float3 wiLocal = shadingData.toLocal(shadingData.V);
+        float3 woLocal = shadingData.toLocal(wo);
 
-        FalcorBSDF bsdf = FalcorBSDF::make(sd, data);
+        FalcorBSDF bsdf = FalcorBSDF::make(shadingData, data);
 
         return bsdf.evalPdf(wiLocal, woLocal);
     }
 
-    BSDFProperties getProperties(const ShadingData sd)
+    BSDFProperties getProperties(const ShadingData shadingData)
     {
         BSDFProperties p; p.flags = 0; // = {};
 
@@ -124,7 +128,7 @@ struct StandardBSDF // : IBSDF
         return p;
     }
 
-    uint getLobes(const ShadingData sd)
+    uint getLobes(const ShadingData shadingData)
     {
         return FalcorBSDF::getLobes(data);
     }
@@ -135,20 +139,20 @@ struct StandardBSDF // : IBSDF
     /** Reference implementation that uses cosine-weighted hemisphere sampling.
         This is for testing purposes only.
         \param[in] sd Shading data.
-        \param[in] sg Sample generator.
+        \param[in] sampleGenerator Sample generator.
         \param[out] result Generated sample. Only valid if true is returned.
         \return True if a sample was generated, false otherwise.
     */
-    bool sampleReference(const ShadingData sd, inout SampleGenerator sg, out BSDFSample result)
+    bool sampleReference(const ShadingData shadingData, inout SampleGenerator sampleGenerator, out BSDFSample result)
     {
-        const bool isTransmissive = (getLobes(sd) & (uint)LobeType::Transmission) != 0;
+        const bool isTransmissive = (getLobes(shadingData) & (uint)LobeType::Transmission) != 0;
 
-        float3 wiLocal = sd.toLocal(sd.V);
-        float3 woLocal = sample_cosine_hemisphere_concentric(sampleNext2D(sg), result.pdf); // pdf = cos(theta) / pi
+        float3 wiLocal = shadingData.toLocal(shadingData.V);
+        float3 woLocal = sample_cosine_hemisphere_concentric(sampleNext2D(sampleGenerator), result.pdf); // pdf = cos(theta) / pi
 
         if (isTransmissive)
         {
-            if (sampleNext1D(sg) < 0.5f)
+            if (sampleNext1D(sampleGenerator) < 0.5f)
             {
                 woLocal.z = -woLocal.z;
             }
@@ -160,15 +164,15 @@ struct StandardBSDF // : IBSDF
             if (min(wiLocal.z, woLocal.z) < kMinCosTheta || result.pdf == 0.f) return false;
         }
 
-        FalcorBSDF bsdf = FalcorBSDF::make(sd, data);
+        FalcorBSDF bsdf = FalcorBSDF::make(shadingData, data);
 
-        result.wo = sd.fromLocal(woLocal);
+        result.wo = shadingData.fromLocal(woLocal);
 #if PTSDK_DIFFUSE_SPECULAR_SPLIT
         float3 diffuse, specular;
-        bsdf.eval(wiLocal, woLocal, sg, diffuse, specular);
+        bsdf.eval(wiLocal, woLocal/*, sampleGenerator*/, diffuse, specular);
         result.weight = (diffuse+specular) / result.pdf;
 #else
-        result.weight = bsdf.eval(wiLocal, woLocal, sg) / result.pdf;
+        result.weight = bsdf.eval(wiLocal, woLocal/*, sampleGenerator*/) / result.pdf;
 #endif
         result.lobe = (uint)(woLocal.z > 0.f ? (uint)LobeType::DiffuseReflection : (uint)LobeType::DiffuseTransmission);
 
@@ -180,12 +184,12 @@ struct StandardBSDF // : IBSDF
         \param[in] wo Outgoing direction.
         \return PDF with respect to solid angle for sampling direction wo.
     */
-    float evalPdfReference(const ShadingData sd, const float3 wo)
+    float evalPdfReference(const ShadingData shadingData, const float3 wo)
     {
-        const bool isTransmissive = (getLobes(sd) & (uint)LobeType::Transmission) != 0;
+        const bool isTransmissive = (getLobes(shadingData) & (uint)LobeType::Transmission) != 0;
 
-        float3 wiLocal = sd.toLocal(sd.V);
-        float3 woLocal = sd.toLocal(wo);
+        float3 wiLocal = shadingData.toLocal(shadingData.V);
+        float3 woLocal = shadingData.toLocal(wo);
 
         if (isTransmissive)
         {
@@ -199,16 +203,16 @@ struct StandardBSDF // : IBSDF
         }
     }
 
-    void evalDeltaLobes(const ShadingData sd, inout DeltaLobe deltaLobes[cMaxDeltaLobes], inout int deltaLobeCount, inout float nonDeltaPart)
+    void evalDeltaLobes(const ShadingData shadingData, inout DeltaLobe deltaLobes[cMaxDeltaLobes], inout int deltaLobeCount, inout float nonDeltaPart)
     {
-        float3 wiLocal = sd.toLocal(sd.V);
+        float3 wiLocal = shadingData.toLocal(shadingData.V);
         
-        FalcorBSDF bsdf = FalcorBSDF::make(sd, data); 
+        FalcorBSDF bsdf = FalcorBSDF::make(shadingData, data); 
         bsdf.evalDeltaLobes(wiLocal, deltaLobes, deltaLobeCount, nonDeltaPart);
         
         // local to world!
         for ( uint i = 0; i < deltaLobeCount; i++ )
-            deltaLobes[i].Wo = sd.fromLocal(deltaLobes[i].Wo);
+            deltaLobes[i].Wo = shadingData.fromLocal(deltaLobes[i].Wo);
     }
 
 

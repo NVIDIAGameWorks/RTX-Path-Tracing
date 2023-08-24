@@ -69,6 +69,8 @@ SamplerState s_EnvironmentSampler                           : register(s4 VK_DES
 
 #define RTXDI_ENVIRONMENT_MAP t_EnvironmentMap
 
+#if !defined(PTSDK_RTXDI_RESOURCES_ONLY)
+
 #include "PolymorphicLight.hlsli"
 
 static const bool kSpecularOnly = false;
@@ -220,9 +222,6 @@ struct RAB_LightSample
     float3 normal;
     float3 radiance;
     float solidAnglePdf;
-#if ENABLE_DEBUG_RTXDI_VIZUALISATION
-    uint index;
-#endif
     PolymorphicLightType lightType;
 };
 
@@ -238,7 +237,7 @@ typedef SampleGenerator RAB_RandomSamplerState;
 // A table-based blue noise RNG dose not provide enough entropy, for example.
 RAB_RandomSamplerState RAB_InitRandomSampler(uint2 index, uint pass)
 {
-    return SampleGenerator::make(index, (g_RtxdiBridgeConst.frameIndex + pass * 13), Bridge::getSampleIndex());
+    return SampleGenerator::make(index, pass, Bridge::getSampleBaseIndex());
 }
 
 // Draws a random number X from the sampler, so that (0 <= X < 1).
@@ -274,7 +273,7 @@ RAB_Surface RAB_GetGBufferSurface(int2 pixelPosition, bool previousFrame)
     RAB_Surface surface = getGBufferSurface(pixelPosition, previousFrame);
 
     // I'm unsure if ReSTIR GI needs transmission or not; I can't see any difference between below on/off for ReSTIR GI but this needs a follow-up
-#if !RAB_SURFACE_INCLUDE_TRANSMISSION
+#if RAB_SURFACE_REMOVE_TRANSMISSION
     surface.RemoveTransmission();   // this allows compiler to compile out quite a bit of code and saves ~3-4% compute time on RTXDI
 #endif
 
@@ -291,7 +290,7 @@ bool RAB_IsSurfaceValid(RAB_Surface surface)
 float3 RAB_GetSurfaceWorldPos(RAB_Surface surface)
 {
     // Should we use posW instead?
-    //return surface.sd.posW;
+    //return surface.shadingData.posW;
     return surface.ComputeNewRayOrigin();
     //return surface.position;
 }
@@ -323,13 +322,7 @@ float RAB_GetSurfaceLinearDepth(RAB_Surface surface)
 // Loads polymorphic light data from the global light buffer.
 RAB_LightInfo RAB_LoadLightInfo(uint index, bool previousFrame)
 {
-    // Include the index for debugging purposes 
-    RAB_LightInfo lightInfo = t_LightDataBuffer[index];
-#if ENABLE_DEBUG_RTXDI_VIZUALISATION
-    lightInfo.logRadiance |= f32tof16(index % g_RtxdiBridgeConst.maxLights) << 16; //Store in the empty slot 
-#endif
-    return lightInfo;
-    //return t_LightDataBuffer[index];
+    return t_LightDataBuffer[index];
 }
 
 // Stores triangle light data into a tile.
@@ -480,14 +473,12 @@ float RAB_GetLightSampleTargetPdfForSurface(RAB_LightSample lightSample, RAB_Sur
     float dis;
     RAB_GetLightDirDistance(surface, lightSample, toLight, dis);
 
+#ifdef RAB_NO_TRANSMISSION_MATERIAL  // we have BSDFs so this early out breaks some surfaces
     if (dot(toLight, RAB_GetSurfaceNormal(surface)) <= 0)
         return 0;
+#endif
 
-    // Dummy random sampler, we need to extend this function to add RAB_RandomSamplerState. 
-    // But it does appear to be needed by the eval function currently
-    SampleGenerator sg = SampleGenerator::make(surface.GetPosW().xy, g_RtxdiBridgeConst.frameIndex, Bridge::getSampleIndex());
-
-    float3 fullBRDF = surface.Eval(toLight, sg);
+    float3 fullBRDF = surface.Eval(toLight);
     return luminance(fullBRDF * lightSample.radiance) / lightSample.solidAnglePdf;
 
 }
@@ -543,8 +534,10 @@ bool RAB_GetSurfaceBrdfSample(RAB_Surface surface, inout RAB_RandomSamplerState 
 // Computes the PDF of a particular direction being sampled by RAB_GetSurfaceBrdfSample.
 float RAB_GetSurfaceBrdfPdf(RAB_Surface surface, float3 dir)
 {
+#ifdef RAB_NO_TRANSMISSION_MATERIAL  // we have BSDFs so this early out breaks some surfaces
    if (dot(RAB_GetSurfaceNormal(surface), dir) <= 0.f)
         return 0;
+#endif
     return surface.EvalPdf(dir, true);
 }
 
@@ -564,9 +557,7 @@ RAB_LightSample RAB_SamplePolymorphicLight(RAB_LightInfo lightInfo, RAB_Surface 
     lightSample.radiance = pls.radiance;
     lightSample.solidAnglePdf = pls.solidAnglePdf;
     lightSample.lightType = getLightType(lightInfo);
-#if ENABLE_DEBUG_RTXDI_VIZUALISATION
-    lightSample.index = pls.index;
-#endif
+
     return lightSample;
 }
 
@@ -828,9 +819,7 @@ float RAB_GetGISampleTargetPdfForSurface(float3 samplePosition, float3 sampleRad
 {
     float3 L = normalize(samplePosition - surface.GetPosW());
 
-    SampleGenerator sg = (SampleGenerator)0; // Needed for bsdf.eval but not really used there
-
-    float3 reflectedRadiance = surface.Eval(L, sg) * sampleRadiance;
+    float3 reflectedRadiance = surface.Eval(L) * sampleRadiance;
     return max(0, luminance(reflectedRadiance));
 }
 
@@ -849,5 +838,7 @@ bool RAB_GetTemporalConservativeVisibility(RAB_Surface currentSurface, RAB_Surfa
 }
 
 #endif // RTXDI_WITH_RESTIR_GI
+
+#endif // #if !defined(PTSDK_RTXDI_RESOURCES_ONLY)
 
 #endif // RTXDI_APPLICATION_BRIDGE_HLSLI

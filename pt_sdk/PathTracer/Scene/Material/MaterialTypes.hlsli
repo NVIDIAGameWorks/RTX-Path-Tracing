@@ -11,7 +11,7 @@
 #ifndef __MATERIAL_TYPES_HLSLI__ // using instead of "#pragma once" due to https://github.com/microsoft/DirectXShaderCompiler/issues/3943
 #define __MATERIAL_TYPES_HLSLI__
 
-#include "../../Config.hlsli"    
+#include "../../Config.h"    
 
 BEGIN_NAMESPACE_FALCOR
 

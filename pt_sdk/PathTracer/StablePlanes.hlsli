@@ -11,7 +11,7 @@
 #ifndef __STABLE_PLANES_HLSLI__ // using instead of "#pragma once" due to https://github.com/microsoft/DirectXShaderCompiler/issues/3943
 #define __STABLE_PLANES_HLSLI__
 
-#include "Config.hlsli"    
+#include "Config.h"    
 
 #include "PathTracerShared.h"
 #include "Rendering\Materials\IBSDF.hlsli"
@@ -47,7 +47,7 @@ struct StablePlane
 {
     uint4   PackedHitInfo;                  // Hit surface info
     float3  RayDirSceneLength;              // Last surface hit direction, multiplied by total ray travel (PathState::sceneLength)
-    uint    VertexIndexSortKey;             // 16bits for vertex index (only 8 actually needed), 16bits for sort key
+    uint    VertexIndexSERSortKey;          // 16bits for vertex index (only 8 actually needed), 16bits for SER sort key
     uint3   PackedThpAndMVs;                // throughput and motion vectors packed in fp16; throughput might no longer be required since it's baked into bsdfestimate
     uint    UsedOnlyForPacking0;            // empty space needed for padding and packing of explore rays
     uint3   DenoiserPackedBSDFEstimate;     // diff and spec bsdf estimates packed in fp16
@@ -55,7 +55,7 @@ struct StablePlane
     float4  DenoiserNormalRoughness;        // we could nicely pack these into at least fp16 if not less
     uint4   DenoiserPackedRadianceHitDist;  // noisy diffuse and specular radiance plus sample hit distance in .w, packed in fp16
 
-    bool            IsEmpty()                                                                       { return VertexIndexSortKey == 0; }
+    bool            IsEmpty()               { return VertexIndexSERSortKey == 0; }
 
 
 #if PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES
@@ -120,9 +120,9 @@ struct StablePlanesContext
 
     static void UnpackStablePlane(const StablePlane sp, out uint vertexIndex, out uint4 packedHitInfo, out uint SERSortKey, out float3 rayDir, out float sceneLength, out float3 thp, out float3 motionVectors)
     {
-        vertexIndex     = sp.VertexIndexSortKey>>16;
+        vertexIndex     = sp.VertexIndexSERSortKey>>16;
         packedHitInfo   = sp.PackedHitInfo;
-        SERSortKey      = sp.VertexIndexSortKey&0xFFFF;
+        SERSortKey      = sp.VertexIndexSERSortKey&0xFFFF;
         sceneLength     = length(sp.RayDirSceneLength.xyz);
         rayDir          = sp.RayDirSceneLength.xyz / sceneLength;
         UnpackTwoFp32ToFp16(sp.PackedThpAndMVs, thp, motionVectors);
@@ -135,7 +135,9 @@ struct StablePlanesContext
         UnpackStablePlane( LoadStablePlane(pixelPos, planeIndex), vertexIndex, packedHitInfo, SERSortKey, rayDir, sceneLength, thp, motionVectors );
     }
 
+#if PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES // should only be written in the first pass
     void                StoreStableRadiance(uint2 pixelPos, float3 radiance)            { StableRadianceUAV[pixelPos].xyzw = float4(clamp( radiance, 0, HLF_MAX ), 0); }
+#endif
     float3              LoadStableRadiance(uint2 pixelPos)                              { return StableRadianceUAV[pixelPos].xyz; }
 
     // last 2 bits are for dominant SP index
@@ -153,7 +155,7 @@ struct StablePlanesContext
         StablePlane sp;
         sp.PackedHitInfo      = packedHitInfo;
         sp.RayDirSceneLength  = rayDir*clamp( sceneLength, 1e-7, kMaxRayTravel );
-        sp.VertexIndexSortKey = (vertexIndex << 16) | (SERSortKey&0xFFFF);
+        sp.VertexIndexSERSortKey = (vertexIndex << 16) | (SERSortKey&0xFFFF);
         sp.PackedThpAndMVs    = PackTwoFp32ToFp16(thp, motionVectors);
 
         // add throughput and clamp to minimum/maximum reasonable
@@ -252,6 +254,14 @@ struct StablePlanesContext
                 denoiserSpecRadianceHitDist.xyzw = StablePlaneCombineWithHitTCompensation(denoiserSpecRadianceHitDist, secondaryL, denoiserSampleHitTFromPlane);
         }
 
+        #if 1 // merge with previous - costs about 0.1ms at native 1920x1080
+        float4 prevDiff, prevSpec;
+        UnpackTwoFp32ToFp16(StablePlanesUAV[address].DenoiserPackedRadianceHitDist, prevDiff, prevSpec);
+
+        denoiserDiffRadianceHitDist = StablePlaneCombineWithHitTCompensation(prevDiff, denoiserDiffRadianceHitDist.xyz, denoiserDiffRadianceHitDist.w);
+        denoiserSpecRadianceHitDist = StablePlaneCombineWithHitTCompensation(prevSpec, denoiserSpecRadianceHitDist.xyz, denoiserSpecRadianceHitDist.w);
+        #endif
+
         StablePlanesUAV[address].DenoiserPackedRadianceHitDist = PackTwoFp32ToFp16(denoiserDiffRadianceHitDist, denoiserSpecRadianceHitDist);
     }
 #endif // #if PATH_TRACER_MODE==PATH_TRACER_MODE_FILL_STABLE_PLANES
@@ -328,10 +338,12 @@ inline float3 StablePlaneDebugVizColor(const uint planeIndex)
 #if !defined(__cplusplus) // shader only!
 inline float StablePlaneAccumulateSampleHitT(float currentHitT, float currentSegmentT, uint bouncesFromPlane, bool pathIsDeltaOnlyPath)
 {
-    if (bouncesFromPlane==1)    // first hit from stable (denoising) plane always records 
+    if (bouncesFromPlane==1)    // first hit from stable (denoising) plane always starts recording hitT
         return currentSegmentT;
-    else if( bouncesFromPlane > 1 && pathIsDeltaOnlyPath ) // subsequent hits from stable plane only add to hitT if delta only
+#if 1 // allow one typical glass-like interface (one for glass entry one for glass exit bounce) to let the hitT computation pass through
+    else if( bouncesFromPlane > 1 && bouncesFromPlane <= 3 && pathIsDeltaOnlyPath )
         return currentHitT+currentSegmentT;
+#endif
     else
         return currentHitT;
 }
@@ -366,7 +378,7 @@ void StablePlane::PackCustomPayload(const uint4 packed[6])
     // WARNING: take care when changing these - error could be subtle and very hard to track down later
     PackedHitInfo                   = packed[0];
     RayDirSceneLength               = asfloat(packed[1].xyz);
-    VertexIndexSortKey              = packed[1].w;
+    VertexIndexSERSortKey           = packed[1].w;
     PackedThpAndMVs                 = packed[2].xyz;
     UsedOnlyForPacking0             = packed[2].w;
     DenoiserPackedBSDFEstimate      = packed[3].xyz;
@@ -379,7 +391,7 @@ void StablePlane::UnpackCustomPayload(inout uint4 packed[6])
     // WARNING: take care when changing these - error could be subtle and very hard to track down later
     packed[0]       = PackedHitInfo;
     packed[1].xyz   = asuint(RayDirSceneLength);
-    packed[1].w     = VertexIndexSortKey;
+    packed[1].w     = VertexIndexSERSortKey;
     packed[2].xyz   = PackedThpAndMVs;
     packed[2].w     = UsedOnlyForPacking0;
     packed[3].xyz   = DenoiserPackedBSDFEstimate;

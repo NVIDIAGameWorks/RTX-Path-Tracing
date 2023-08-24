@@ -10,7 +10,7 @@
 
 #define USE_DENOISING_NRD 1     // <- this define should come from elsewhere
 
-#include "PathTracer/Config.hlsli"
+#include "PathTracer/Config.h"
 
 #include "RenderTargets.h"
 

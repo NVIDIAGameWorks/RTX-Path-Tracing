@@ -11,7 +11,7 @@
 #ifndef __LOBE_TYPE_HLSLI__ // using instead of "#pragma once" due to https://github.com/microsoft/DirectXShaderCompiler/issues/3943
 #define __LOBE_TYPE_HLSLI__
 
-#include "../../Config.hlsli"    
+#include "../../Config.h"    
 
 /** Flags representing the various lobes of a BxDF.
 */

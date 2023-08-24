@@ -155,7 +155,9 @@ void RtxdiPass::BeginFrame(
 	const std::shared_ptr<donut::engine::ExtendedScene> scene,
 	const RtxdiBridgeParameters& bridgeParams,
 	const nvrhi::BindingLayoutHandle extraBindingLayout,
-	bool UseReSTIRDI)
+	nvrhi::BindingSetHandle extraBindingSet,
+	bool usingLightSampling,
+    bool usingReGIR)
 {
 	m_Scene = scene;
 	m_BridgeParameters = bridgeParams;
@@ -241,60 +243,55 @@ void RtxdiPass::BeginFrame(
 		CreateBindingSet(renderTargets);
 	}
 
-	// In case where the RTXDI context is only needed for ReSTIR GI, skip the light preparation and mip chain passes
-	if (UseReSTIRDI)
+	// Light preparation is only needed for ReStirDI
+	if (usingLightSampling)
 	{
 		//This pass needs to happen before we fill the constant buffers 
 		commandList->beginMarker("Prepare Light");
 		m_PrepareLightsPass->Process(commandList, *m_RtxdiContext, m_BridgeParameters.frameParams);
 		commandList->endMarker();
-
-		//Create PDF mip chain passes
-		if (envMapPresent && (!m_EnvironmentMapPdfMipmapPass || rtxdiResourceCreated || m_EnvMapDirty))
-		{
-			m_EnvironmentMapPdfMipmapPass = std::make_unique<GenerateMipsPass>(
-				m_Device,
-				m_ShaderFactory,
-				envMap->GetEnvironmentMap(),
-				m_RtxdiResources->EnvironmentPdfTexture);
-
-			SetEnvMapDirty();
-		}
-
-		if (!m_LocalLightPdfMipmapPass || rtxdiResourceCreated)
-		{
-			m_LocalLightPdfMipmapPass = std::make_unique<GenerateMipsPass>(
-				m_Device,
-				m_ShaderFactory,
-				nullptr,
-				m_RtxdiResources->LocalLightPdfTexture);
-		}
 	}
 
 	FillConstants(commandList);
-}
 
-void RtxdiPass::Execute(
-	nvrhi::CommandListHandle commandList,
-	nvrhi::BindingSetHandle extraBindingSet,
-    bool skipFinal
-)
-{
-	commandList->beginMarker("ReSTIR DI");
+	// In cases where the RTXDI context is only needed for ReSTIR GI we can skip pdf, presampling and ReGir passes
+	if (!usingLightSampling)
+		return;
+
+	//Create PDF mip chain passes
+	if (envMapPresent && (!m_EnvironmentMapPdfMipmapPass || rtxdiResourceCreated || m_EnvMapDirty))
+	{
+		m_EnvironmentMapPdfMipmapPass = std::make_unique<GenerateMipsPass>(
+			m_Device,
+			m_ShaderFactory,
+			envMap->GetEnvironmentMap(),
+			m_RtxdiResources->EnvironmentPdfTexture);
+
+		SetEnvMapDirty();
+	}
+
+	if (!m_LocalLightPdfMipmapPass || rtxdiResourceCreated)
+	{
+		m_LocalLightPdfMipmapPass = std::make_unique<GenerateMipsPass>(
+			m_Device,
+			m_ShaderFactory,
+			nullptr,
+			m_RtxdiResources->LocalLightPdfTexture);
+	}
 
 	commandList->beginMarker("GeneratePDFTextures");
-	
+
 	m_LocalLightPdfMipmapPass->Process(commandList);
 
 	//if environment map has updated, generate pdf texture. 
 	if (m_EnvMapDirty)
 	{
-       if (m_EnvironmentMapPdfMipmapPass!=nullptr)
-		    m_EnvironmentMapPdfMipmapPass->Process(commandList);
+		if (m_EnvironmentMapPdfMipmapPass != nullptr)
+			m_EnvironmentMapPdfMipmapPass->Process(commandList);
 		m_EnvMapDirty = false;
 	}
 	commandList->endMarker();
-	
+
 	// Pre-sample lights
 	if (m_BridgeParameters.frameParams.enableLocalLightImportanceSampling && m_BridgeParameters.frameParams.numLocalLights > 0)
 	{
@@ -317,13 +314,21 @@ void RtxdiPass::Execute(
 	}
 
 	//Build ReGIR structure 
-	if (m_RtxdiContext->GetParameters().ReGIR.Mode != rtxdi::ReGIRMode::Disabled &&
-		m_BridgeParameters.frameParams.numLocalLights > 0)
+	if (m_RtxdiContext->GetParameters().ReGIR.Mode != rtxdi::ReGIRMode::Disabled && usingReGIR)
 	{
 		dm::int3 worldGridDispatchSize = {
 			dm::div_ceil(m_RtxdiContext->GetReGIRLightSlotCount(), RTXDI_GRID_BUILD_GROUP_SIZE), 1, 1 };
 		ExecuteComputePass(commandList, m_PresampleReGIRPass, "Pre-sample ReGir", worldGridDispatchSize, extraBindingSet);
 	}
+}
+
+void RtxdiPass::Execute(
+	nvrhi::CommandListHandle commandList,
+	nvrhi::BindingSetHandle extraBindingSet,
+    bool skipFinal
+)
+{
+	commandList->beginMarker("ReSTIR DI");
 
 	dm::int2 dispatchSize = { (int) m_RtxdiContext->GetParameters().RenderWidth, (int) m_RtxdiContext->GetParameters().RenderHeight };
 	
@@ -375,12 +380,15 @@ void RtxdiPass::FillConstants(nvrhi::CommandListHandle commandList)
 {
 	// Set the ReGir center and the camera position 
 	m_BridgeParameters.frameParams.regirCenter = { m_BridgeParameters.cameraPosition.x, m_BridgeParameters.cameraPosition.y,m_BridgeParameters.cameraPosition.z };
+	m_BridgeParameters.frameParams.regirCellSize = m_BridgeParameters.userSettings.regirCellSize;
+	m_BridgeParameters.frameParams.regirSamplingJitter = m_BridgeParameters.userSettings.regirSamplingJitter;
 
 	RtxdiBridgeConstants bridgeConstants{};
 	m_RtxdiContext->FillRuntimeParameters(bridgeConstants.runtimeParams, m_BridgeParameters.frameParams);
 	FillSharedConstants(bridgeConstants);
 	FillDIConstants(bridgeConstants.reStirDI);
 	FillGIConstants(bridgeConstants.reStirGI);
+	FillReGirIndirectConstants(bridgeConstants.reGirIndirect);
 
 	commandList->writeBuffer(m_RtxdiConstantBuffer, &bridgeConstants, sizeof(RtxdiBridgeConstants));
 }
@@ -434,7 +442,7 @@ void RtxdiPass::FillDIConstants(struct ReStirDIConstants& diConstants)
 	m_CurrentReservoirIndex = diConstants.finalShadingReservoir;
 
 	//Generate initial samples variables
-	diConstants.numPrimaryRegirSamples = m_BridgeParameters.userSettings.numPrimaryRegirSamples;
+	diConstants.numRegirBuildSamples = m_BridgeParameters.userSettings.numRegirBuildSamples;
 	diConstants.numPrimaryLocalLightSamples = m_BridgeParameters.userSettings.numPrimaryLocalLightSamples;
 	diConstants.numPrimaryInfiniteLightSamples = m_BridgeParameters.userSettings.numPrimaryInfiniteLightSamples;
 	diConstants.numPrimaryEnvironmentSamples = m_BridgeParameters.userSettings.numPrimaryEnvironmentSamples;
@@ -515,6 +523,14 @@ void RtxdiPass::FillGIConstants(struct ReStirGIConstants& giConstants)
 	giConstants.enableFinalMIS = settings.gi.enableFinalMIS;
 }
 
+
+void RtxdiPass::FillReGirIndirectConstants(struct ReGirIndirectConstants& regirConstants)
+{
+	const auto& settings = m_BridgeParameters.userSettings;
+
+	regirConstants.numIndirectSamples = settings.numIndirectRegirSamples;
+}
+
 void RtxdiPass::ExecuteGI(nvrhi::CommandListHandle commandList, nvrhi::BindingSetHandle extraBindingSet, bool skipFinal)
 {
 	commandList->beginMarker("ReSTIR GI");
@@ -558,9 +574,10 @@ void RtxdiPass::ExecuteComputePass(
 	nvrhi::BindingSetHandle extraBindingSet /*= nullptr*/)
 {
 	commandList->beginMarker(passName);
-
+    
+    uint4 unusedPushConstants = {0,0,0,0};  // shared bindings require them
 	pass.Execute(commandList, dispatchSize.x, dispatchSize.y, dispatchSize.z, m_BindingSet,
-		extraBindingSet, m_Scene->GetDescriptorTable());
+		extraBindingSet, m_Scene->GetDescriptorTable(), &unusedPushConstants, sizeof(unusedPushConstants));
 
 	commandList->endMarker();
 }
@@ -575,8 +592,9 @@ void RtxdiPass::ExecuteRayTracingPass(
 {
 	commandList->beginMarker(passName);
 	
+    uint4 unusedPushConstants = { 0,0,0,0 };  // shared bindings require them
 	pass.Execute(commandList, dispatchSize.x, dispatchSize.y, m_BindingSet, 
-		extraBindingSet, m_Scene->GetDescriptorTable());
+		extraBindingSet, m_Scene->GetDescriptorTable(), &unusedPushConstants, sizeof(unusedPushConstants));
 
 	commandList->endMarker();
 }

@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include "PathTracer/Config.hlsli"
+#include "PathTracer/Config.h"
 
 #include "SampleUI.h"
 
@@ -91,9 +91,12 @@ private:
     std::shared_ptr<donut::render::TransparentDrawStrategy> m_TransparentDrawStrategy;
     std::shared_ptr<EnvironmentMap>             m_EnvironmentMap;
     nvrhi::BufferHandle                         m_ConstantBuffer;
-    nvrhi::BufferHandle                         m_MiniConstantBuffer;
     nvrhi::BufferHandle                         m_SubInstanceBuffer;            // per-instance-geometry data, indexed with (InstanceID()+GeometryIndex())
     uint                                        m_SubInstanceCount;
+
+#if USE_PRECOMPUTED_SOBOL_BUFFER
+    nvrhi::BufferHandle                         m_PrecomputedSobolBuffer;
+#endif
     
     // raytracing basics
     std::unique_ptr< OmmBuildQueue >            m_OmmBuildQueue;
@@ -156,6 +159,7 @@ private:
 
     uint64_t                                    m_frameIndex = 0;
     uint                                        m_sampleIndex = 0;            // per-frame sampling index; same as m_AccumulationSampleIndex in accumulation mode, otherwise in realtime based on frameIndex%something 
+    SampleConstants                             m_currentConstants = {};
 
     std::unique_ptr<NrdIntegration>             m_NRD[cStablePlaneCount];       // reminder: when switching between ReLAX/ReBLUR, change settings, reset these to 0 and they'll get re-created in CreateRenderPasses!
     std::unique_ptr<RtxdiPass>                  m_RtxdiPass;
@@ -173,6 +177,8 @@ private:
 #endif
     int2                                        m_DisplaySize;
     int2                                        m_RenderSize;
+
+    std::string                                 m_FPSInfo;
 
 public:
     using ApplicationBase::ApplicationBase;
@@ -224,6 +230,7 @@ public:
     void                                    UpdateAccelStructs(nvrhi::ICommandList* commandList);
     void                                    BuildOpacityMicromaps(nvrhi::ICommandList* commandList, uint32_t frameIndex);
     void                                    BuildTLAS(nvrhi::ICommandList* commandList, uint32_t frameIndex) const;
+    void                                    TransitionMeshBuffersToReadOnly(nvrhi::ICommandList* commandList);
     void                                    BackBufferResizing() override;
     void                                    CreateRenderPasses(bool& exposureResetRequired);
     void                                    PreUpdatePathTracing(bool resetAccum, nvrhi::CommandListHandle commandList);
@@ -238,7 +245,8 @@ public:
 
     donut::math::float2                     ComputeCameraJitter( uint frameIndex );
 
-    std::string                             GetResolutionInfo();
+    std::string                             GetResolutionInfo() const;
+    std::string                             GetFPSInfo() const              { return m_FPSInfo; }
 
     void                                    DebugDrawLine( float3 start, float3 stop, float4 col1, float4 col2 );
     const donut::app::FirstPersonCamera &   GetCurrentCamera( ) const { return m_Camera; }

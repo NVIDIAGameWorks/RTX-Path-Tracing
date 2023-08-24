@@ -11,7 +11,6 @@ build-debug-job:
 
   stage: build
   script:
-    - ./update_dependencies.bat
     - mkdir build_debug
     - cd build_debug
     - cmake .. -DCMAKE_BUILD_TYPE=Debug
@@ -25,7 +24,6 @@ build-release-job:
 
   stage: build
   script:
-    - ./update_dependencies.bat
     - mkdir build_release
     - cd build_release
     - cmake .. -DCMAKE_BUILD_TYPE=Release

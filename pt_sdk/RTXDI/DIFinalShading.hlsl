@@ -63,22 +63,19 @@ bool ReSTIRDIFinalContribution(const uint2 reservoirPos, const uint2 pixelPos, c
     specularContribution = 0.0.xxx;
     hitDistance = 0.0;
 
-    PathLightSample ls = PathLightSample::make();
-    bool isValid = getFinalSample(reservoirPos, surface, ls.Li, ls.dir, ls.distance);
+    PathTracer::PathLightSample ls = PathTracer::PathLightSample::make();
+    bool isValid = getFinalSample(reservoirPos, surface, ls.Li, ls.Direction, ls.Distance);
     if (!isValid)
         return false;
-
-    // This shouldn't be required for bsdf.eval, but bsdf.eval interface needs it
-    SampleGenerator sg = (SampleGenerator)0; //SampleGenerator::make(pixelPos, vertexIndex, Bridge::getSampleIndex());
 
     // Apply sample shading
 #if PTSDK_DIFFUSE_SPECULAR_SPLIT
     float3 bsdfThpDiff, bsdfThpSpec; 
-    surface.Eval(ls.dir, sg, bsdfThpDiff, bsdfThpSpec);
+    surface.Eval(ls.Direction, bsdfThpDiff, bsdfThpSpec);
     float3 bsdfThp = bsdfThpDiff + bsdfThpSpec;
 #else
 #error denoiser requires specular split currently but easy to switch back
-    float3 bsdfThp = surface.Eval(ls.dir, sg);
+    float3 bsdfThp = surface.Eval(ls.dir);
 #endif
 
     float3 pathThp = Unpack_R11G11B10_FLOAT(u_Throughput[pixelPos]);
@@ -92,11 +89,11 @@ bool ReSTIRDIFinalContribution(const uint2 reservoirPos, const uint2 pixelPos, c
     specularRadiance = FireflyFilter( specularRadiance, g_Const.ptConsts.fireflyFilterThreshold, 1.0 );
 #endif
 
-    hitDistance = ls.distance;
+    hitDistance = ls.Distance;
 
     // useful for debugging!
     DebugContext debug;
-    debug.Init(pixelPos, 0, g_Const.debug, u_FeedbackBuffer, u_DebugLinesBuffer, u_DebugDeltaPathTree, u_DeltaPathSearchStack, u_DebugVizOutput);
+    debug.Init(pixelPos, g_Const.debug, u_FeedbackBuffer, u_DebugLinesBuffer, u_DebugDeltaPathTree, u_DeltaPathSearchStack, u_DebugVizOutput);
 
     switch (g_Const.debug.debugViewType)
     {
