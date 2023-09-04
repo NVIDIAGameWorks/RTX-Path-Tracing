@@ -135,4 +135,4 @@ Path Tracing SDK is under active development. Please report any issues directly 
 
 See [LICENSE.txt](LICENSE.txt)
 
-This project includes software from NVAPI. The NVAPI software is covered by the license terms specified here: https://github.com/NVIDIA/nvapi/blob/main/License.txt
+This project includes NVAPI software. All uses of NVAPI software are governed by the license terms specified here: https://github.com/NVIDIA/nvapi/blob/main/License.txt.
