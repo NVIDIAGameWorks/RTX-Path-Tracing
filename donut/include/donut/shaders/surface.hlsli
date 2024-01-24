@@ -39,6 +39,7 @@ struct MaterialSample
     float diffuseTransmission;
     bool hasMetalRoughParams; // indicates that 'baseColor' and 'metalness' are valid
     float ior;
+    float shadowNoLFadeout;
 };
 
 MaterialSample DefaultMaterialSample()

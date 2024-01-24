@@ -108,6 +108,7 @@ namespace donut::app
         bool enableRayTracingExtensions = false; // for vulkan
         bool enableComputeQueue = false;
         bool enableCopyQueue = false;
+        bool requireAdapterRaytracingSupport = false; // will skip adapters with no raytracing support
 
         // Severity of the information log messages from the device manager, like the device name or enabled extensions.
         log::Severity infoLogSeverity = log::Severity::Info;
@@ -147,7 +148,7 @@ namespace donut::app
         std::vector<std::string> optionalVulkanDeviceExtensions;
         std::vector<std::string> optionalVulkanLayers;
         std::vector<size_t> ignoredVulkanValidationMessageLocations;
-        std::function<void(vk::DeviceCreateInfo&)> deviceCreateInfoCallback;
+        std::function<void(VkDeviceCreateInfo&)> deviceCreateInfoCallback;
 #endif
     };
 
@@ -159,6 +160,8 @@ namespace donut::app
         static DeviceManager* Create(nvrhi::GraphicsAPI api);
 
         bool CreateWindowDeviceAndSwapChain(const DeviceCreationParameters& params, const char *windowTitle);
+
+        bool CreateDeviceAndSwapChain(const DeviceCreationParameters& params);
 
         void AddRenderPassToFront(IRenderPass *pController);
         void AddRenderPassToBack(IRenderPass *pController);
@@ -253,7 +256,7 @@ namespace donut::app
         nvrhi::IFramebuffer* GetCurrentFramebuffer();
         nvrhi::IFramebuffer* GetFramebuffer(uint32_t index);
 
-        void Shutdown();
+        virtual void Shutdown();
         virtual ~DeviceManager() = default;
 
         void SetWindowTitle(const char* title);

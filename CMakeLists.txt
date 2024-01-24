@@ -15,6 +15,8 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)
 
+set (CMAKE_CONFIGURATION_TYPES "Debug;Release" CACHE STRING "" FORCE)
+
 set(PTSDK_LOCAL_CONFIG_ID "NONAME" CACHE STRING "Local user initials for user-specific settings")
 add_definitions( -DPTSDK_LOCAL_CONFIG_ID_STRING=std::string\(\"${PTSDK_LOCAL_CONFIG_ID}\"\) )
 

@@ -161,6 +161,11 @@ namespace donut::engine
         float volumeAttenuationDistance = FLT_MAX;
         dm::float3 volumeAttenuationColor = 1.f;
 
+        // Low tessellation geometry often has triangle (flat) normals that differ significantly from shading normals. This causes shading vs shadow discrepancy that exposes triangle edges. 
+        // One way to mitigate this (other than having more detailed mesh) is to add additional shadowing falloff to hide the seam. 
+        // This setting is not physically correct and adds bias. Setting of 0 means no fadeout (default).
+        float shadowNoLFadeout = 0.0f;
+
         int materialID = 0;
         bool dirty = true; // set this to true to make Scene update the material data
 

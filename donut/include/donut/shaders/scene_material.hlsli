@@ -221,6 +221,8 @@ MaterialSample EvaluateSceneMaterial(float3 normal, float4 tangent, MaterialCons
         ApplyNormalMap(result, tangent, textures.normal, material.normalTextureScale);
 
     result.ior = material.ior;
+    
+    result.shadowNoLFadeout = material.shadowNoLFadeout;
 
     return result;
 }
