@@ -27,7 +27,7 @@
 #include <donut/shaders/lighting.hlsli>
 #include <donut/shaders/scene_material.hlsli>
 
-#include "PathTracerBridgeResources.hlsli"
+#include "DonutBindings.hlsli"
 
 enum DonutGeometryAttributes
 {
@@ -397,11 +397,10 @@ PathTracer::SurfaceData Bridge::loadSurface(const uniform PathTracer::Optimizati
 
     // after this point we have valid tangent space in ptShadingData.N/.T/.B using geometry (interpolated) normal, but without normalmap yet
     const bool validTangentSpace = computeTangentSpace(ptShadingData, ptVertex.tangentW);
-    //if( !validTangentSpace )  // handled by computeTangentSpace
-    //    ConstructONB( ptShadingData.N, ptShadingData.T, ptShadingData.B );
 
     // Primitive data
     ptShadingData.faceN = ptVertex.faceNormalW;         // must happen before adjustShadingNormal!
+    ptShadingData.vertexN = (donutGS.frontFacing)?(donutGS.geometryNormal):(-donutGS.geometryNormal);
     ptShadingData.frontFacing = donutGS.frontFacing;        // must happen before adjustShadingNormal!
     ptShadingData.curveRadius = ptVertex.curveRadius;
 
@@ -416,14 +415,14 @@ PathTracer::SurfaceData Bridge::loadSurface(const uniform PathTracer::Optimizati
     //const bool alphaTested = (donutGS.material.domain == MaterialDomain_AlphaTested) || (donutGS.material.domain == MaterialDomain_TransmissiveAlphaTested);
     ptShadingData.materialID = donutGS.geometry.materialIndex;
     ptShadingData.mtl = MaterialHeader::make();
-    ptShadingData.mtl.setMaterialType( MaterialType::Standard );
+    //ptShadingData.mtl.setMaterialType( MaterialType::Standard );
     //ptShadingData.mtl.setAlphaMode( (AlphaMode)( (!alphaTested)?((uint)AlphaMode::Opaque):((uint)AlphaMode::Mask) ) );    // alpha testing handled on our side, Falcor stuff is unused
     //ptShadingData.mtl.setAlphaThreshold( donutGS.material.alphaCutoff );                                                  // alpha testing handled on our side, Falcor stuff is unused
     ptShadingData.mtl.setNestedPriority( min( InteriorList::kMaxNestedPriority, 1 + (uint(donutGS.material.flags) >> MaterialFlags_NestedPriorityShift)) );   // priorities are from (1, ... kMaxNestedPriority) because 0 is used to mark empty slots and remapped to kMaxNestedPriority
     //ptShadingData.mtl.setDoubleSided( donutMaterialDoubleSided );  // removed; all triangles are double sided to avoid breaking path tracing logic in various cases
     ptShadingData.mtl.setThinSurface( donutMaterialThinSurface );
     ptShadingData.mtl.setEmissive( any(donutMaterial.emissiveColor!=0) );
-    ptShadingData.mtl.setIsBasicMaterial( true );
+    //ptShadingData.mtl.setIsBasicMaterial( true );
     ptShadingData.mtl.setPSDExclude( (donutGS.material.flags & MaterialFlags_PSDExclude) != 0 );
     ptShadingData.mtl.setPSDDominantDeltaLobeP1( (donutGS.material.flags & MaterialFlags_PSDDominantDeltaLobeP1Mask) >> MaterialFlags_PSDDominantDeltaLobeP1Shift );
 
@@ -433,9 +432,12 @@ PathTracer::SurfaceData Bridge::loadSurface(const uniform PathTracer::Optimizati
         ptShadingData.N = -ptShadingData.N;
 
     // Helper function to adjust the shading normal to reduce black pixels due to back-facing view direction. Note: This breaks the reciprocity of the BSDF!
-    adjustShadingNormal( ptShadingData, ptVertex );
+    // This also reorthonormalizes the frame based on the normal map, which is necessary (see `ptShadingData.N = donutMaterial.shadingNormal;` line above)
+    adjustShadingNormal( ptShadingData, ptVertex, true );
 
     ptShadingData.opacity = donutMaterial.opacity;
+
+    ptShadingData.shadowNoLFadeout = donutMaterial.shadowNoLFadeout;
 
     ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Now load the actual BSDF! Equivalent to StandardBSDF::setupBSDF
@@ -515,7 +517,7 @@ PathTracer::SurfaceData Bridge::loadSurface(const uniform PathTracer::Optimizati
     // if you think tangent space is broken, test with this (won't make it correctly oriented)
     //ConstructONB( ptShadingData.N, ptShadingData.T, ptShadingData.B );
 
-    PathTracer::SurfaceData ret = PathTracer::SurfaceData::make(/*ptVertex,*/ ptShadingData, bsdf, prevPosW, matIoR);
+    PathTracer::SurfaceData ret = PathTracer::SurfaceData::make(/*ptVertex, */ptShadingData, bsdf, prevPosW, matIoR);
 
 #if ENABLE_DEBUG_VIZUALISATION && !NON_PATH_TRACING_PASS
     if( debug.IsDebugPixel() && pathVertexIndex==1 && !debug.constants.exploreDeltaTree )
@@ -558,72 +560,6 @@ HomogeneousVolumeData Bridge::loadHomogeneousVolumeData(const uint materialID)
     ptVolume.sigmaA = -log( clamp( donutVolume.attenuationColor, 1e-7, 1 ) ) / max( 1e-30, donutVolume.attenuationDistance.xxx );
 
     return ptVolume;        
-}
-
-// Get the number of analytic light sources
-uint Bridge::getAnalyticLightCount()
-{
-    return g_Const.lightConstantsCount;
-}
-
-// Sample single analytic light source given the index (with respect to getAnalyticLightCount() )
-bool Bridge::sampleAnalyticLight(const float3 shadingPosW, uint lightIndex, inout SampleGenerator sampleGenerator, out AnalyticLightSample ls)
-{
-    // Convert from Donut to PT_SDK light
-    LightConstants donutLight = g_Const.lights[lightIndex];
-
-    AnalyticLightData light = AnalyticLightData::make();
-
-    light.posW          = donutLight.position;       ///< World-space position of the center of a light source
-    light.dirW          = donutLight.direction;      ///< World-space orientation of the light source (normalized).
-    // light.openingAngle       ;                    ///< For point (spot) light: Opening half-angle of a spot light cut-off, pi by default (full sphere).
-    light.intensity     = donutLight.color * donutLight.intensity;                   ///< Emitted radiance of th light source
-    // light.cosOpeningAngle    ;                   ///< For point (spot) light: cos(openingAngle), -1 by default because openingAngle is pi by default
-    // light.cosSubtendedAngle  ;                   ///< For distant light; cosine of the half-angle subtended by the light. Default corresponds to the sun as viewed from earth
-    // light.penumbraAngle      ;                   ///< For point (spot) light: Opening half-angle of penumbra region in radians, usually does not exceed openingAngle. 0.f by default, meaning a spot light with hard cut-off
-
-    // Extra parameters for analytic area lights
-    // light.tangent            ;                   ///< Tangent vector of the light shape
-    // light.surfaceArea        ;                   ///< Surface area of the light shape
-    // light.bitangent          ;                   ///< Bitangent vector of the light shape
-    // light.transMat           ;                   ///< Transformation matrix of the light shape, from local to world space.
-    // light.transMatIT         ;                   ///< Inverse-transpose of transformation matrix of the light shape
-
-    switch (donutLight.lightType)
-    {
-    case( LightType_Directional ): 
-    {
-#if 0
-        light.type = (uint)AnalyticLightType::Directional; 
-        return sampleDirectionalLight(shadingPosW, light, ls);
-#else
-        light.type = (uint)AnalyticLightType::Distant; 
-        // AnalyticLightType::Distant requires transform in transMat, so make one up - doesn't make any difference that it's made up unless it's moving, in which case sampling could be non-consistent
-        float3 T, B;
-        ConstructONB( -donutLight.direction, T, B );
-        light.transMat[0].xyz = T;
-        light.transMat[1].xyz = B;
-        light.transMat[2].xyz = -donutLight.direction;
-        light.cosSubtendedAngle = cos( donutLight.angularSizeOrInvRange * 0.5);
-        return sampleDistantLight(shadingPosW, light, sampleNext2D(sampleGenerator), ls);
-#endif
-            
-    } break; // AnalyticLightType::Distant?
-    case( LightType_Spot ): 
-    {
-        light.type = (uint)AnalyticLightType::Point; 
-        light.openingAngle = donutLight.outerAngle;
-        light.cosOpeningAngle = cos(donutLight.outerAngle);
-        light.penumbraAngle = donutLight.innerAngle;
-        return samplePointLight(shadingPosW, light, ls);
-    } break;
-    case( LightType_Point ): 
-    {
-        light.type = (uint)AnalyticLightType::Point; 
-        return samplePointLight(shadingPosW, light, ls);
-    } break;
-    default: return false;
-    }
 }
 
 // 2.5D motion vectors
@@ -815,59 +751,27 @@ void Bridge::StoreSecondarySurfacePositionAndNormal(uint2 pixelCoordinate, float
     u_SecondarySurfacePositionNormal[pixelCoordinate] = float4(worldPos, asfloat(encodedNormal));
 }
 
-EnvMapSampler createEnvMapSampler()
+EnvMap Bridge::CreateEnvMap()
+{
+    return EnvMap::make( t_EnvironmentMap, s_EnvironmentMapSampler, g_Const.envMapSceneParams );
+}
+
+EnvMapSampler Bridge::CreateEnvMapImportanceSampler()
 {
     return EnvMapSampler::make(
-        s_ImportanceSampler,
-        t_ImportanceMap,
-        g_Const.envMapSamplerData.importanceInvDim,
-        g_Const.envMapSamplerData.importanceBaseMip,
+        s_EnvironmentMapImportanceSampler,
+        t_EnvironmentMapImportanceMap,
+        g_Const.envMapImportanceSamplingParams,
         t_EnvironmentMap,
         s_EnvironmentMapSampler,
-        g_Const.envMapData
+        g_Const.envMapSceneParams,
+        t_PresampledEnvMapBuffer
     );
 }
 
-bool Bridge::EnvMap::HasEnvMap()
+bool Bridge::HasEnvMap()
 {
     return g_Const.ptConsts.hasEnvMap;
-}
-
-float3 Bridge::EnvMap::Eval(float3 dir)
-{
-    EnvMapSampler env = createEnvMapSampler();
-    return env.eval(dir);
-}
-
-float Bridge::EnvMap::EvalPdf(float3 dir)
-{
-    EnvMapSampler env = createEnvMapSampler();
-    return env.evalPdf(dir);
-}
-
-EnvMapSample Bridge::EnvMap::Sample(const float2 rnd)
-{
-    EnvMapSampler env = createEnvMapSampler();
-    return env.sample(rnd);
-}
-
-EnvMapSample Bridge::EnvMap::SamplePresampled(const float rnd)
-{
-    // 1D sampling, rnd must be in [0, 1)
-    uint address = uint(rnd * float(ENVMAP_PRESAMPLED_COUNT));
-   
-    EnvMapSample s;
-
-    // stored in 2 uint-s to minimize footprint, to see where the samples are generated, see EnvMapPresampling.hlsl 
-    uint2 packedSample = t_PresampledEnvMapBuffer[address];
-    UnpackTwoFp32ToFp16( packedSample.x, s.dir.x, s.dir.y );
-    UnpackTwoFp32ToFp16( packedSample.y, s.dir.z, s.pdf );
-    
-    // We still load value from envmap here; in theory we could pack radiance in packedSample, but we still need
-    // .dir and .pdf so it would double the memory footprint; unclear whether it would help but worth trying out!
-    EnvMapSampler env = createEnvMapSampler();
-    s.Le = env.eval(s.dir);
-    return s;
 }
 
 #endif // __PATH_TRACER_BRIDGE_DONUT_HLSLI__

@@ -25,6 +25,7 @@ private:
     nvrhi::BindingSetHandle m_BindingSet;
     nvrhi::TextureHandle m_SourceTexture;
     nvrhi::TextureHandle m_DestinationTexture;
+    nvrhi::SamplerHandle m_LinearSampler;
     
 public:
     GenerateMipsPass(

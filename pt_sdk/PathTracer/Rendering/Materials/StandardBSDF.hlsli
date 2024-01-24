@@ -212,7 +212,7 @@ struct StandardBSDF // : IBSDF
         
         // local to world!
         for ( uint i = 0; i < deltaLobeCount; i++ )
-            deltaLobes[i].Wo = shadingData.fromLocal(deltaLobes[i].Wo);
+            deltaLobes[i].dir = shadingData.fromLocal(deltaLobes[i].dir);
     }
 
 

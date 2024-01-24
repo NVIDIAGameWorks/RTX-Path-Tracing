@@ -17,14 +17,14 @@
 #include <donut/engine/CommonRenderPasses.h>
 #include <donut/core/log.h>
 #include <nvrhi/utils.h>
-#include <rtxdi/RTXDI.h>
 
 #include <algorithm>
 #include <utility>
 
 using namespace donut::math;
 #include "ShaderParameters.h"
-#include "../Lights/EnvironmentMapImportanceSampling.h"
+#include "../Lighting/Distant/EnvMapBaker.h"
+#include "../Lighting/Distant/EnvMapImportanceSamplingBaker.h"
 #include "../RenderTargets.h"
 
 using namespace donut::engine;
@@ -45,7 +45,7 @@ PrepareLightsPass::PrepareLightsPass(
     nvrhi::BindingLayoutDesc bindingLayoutDesc;
     bindingLayoutDesc.visibility = nvrhi::ShaderType::Compute;
     bindingLayoutDesc.bindings = {
-        nvrhi::BindingLayoutItem::PushConstants(0, sizeof(PrepareLightsConstants)),
+        nvrhi::BindingLayoutItem::VolatileConstantBuffer(0), //PushConstants(0, sizeof(PrepareLightsConstants)),
         nvrhi::BindingLayoutItem::StructuredBuffer_UAV(0),
         nvrhi::BindingLayoutItem::TypedBuffer_UAV(1),
         nvrhi::BindingLayoutItem::Texture_UAV(2),
@@ -56,21 +56,32 @@ PrepareLightsPass::PrepareLightsPass(
         nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4),
         nvrhi::BindingLayoutItem::StructuredBuffer_SRV(5),
         nvrhi::BindingLayoutItem::Texture_SRV(6),
+        nvrhi::BindingLayoutItem::Texture_SRV(7),
         nvrhi::BindingLayoutItem::Texture_UAV(50),
 
         nvrhi::BindingLayoutItem::Sampler(0),
-        nvrhi::BindingLayoutItem::Sampler(1)
+        nvrhi::BindingLayoutItem::Sampler(1),
+        nvrhi::BindingLayoutItem::Sampler(2)
     };
 
     m_BindingLayout = m_Device->createBindingLayout(bindingLayoutDesc);
+
+    nvrhi::BufferDesc constBufferDesc;
+    constBufferDesc.byteSize = sizeof(PrepareLightsConstants);
+    constBufferDesc.debugName = "PrepareLightsConstants";
+    constBufferDesc.isConstantBuffer = true;
+    constBufferDesc.isVolatile = true;
+    constBufferDesc.maxVersions = 16;
+    m_ConstantBuffer = device->createBuffer(constBufferDesc);
 }
 
 
 void PrepareLightsPass::SetScene(std::shared_ptr<donut::engine::ExtendedScene> scene,
-    std::shared_ptr<EnvironmentMap> environmentMap /*= nullptr*/)
+    std::shared_ptr<EnvMapBaker> environmentMap, EnvMapSceneParams envMapSceneParams)
 {
     m_Scene = scene;
     m_EnvironmentMap = environmentMap;
+    m_EnvironmentMapSceneParams = envMapSceneParams;
 }
 
 void PrepareLightsPass::CreatePipeline()
@@ -89,7 +100,7 @@ void PrepareLightsPass::CreateBindingSet(RtxdiResources& resources, const Render
 {
     nvrhi::BindingSetDesc bindingSetDesc;
     bindingSetDesc.bindings = {
-        nvrhi::BindingSetItem::PushConstants(0, sizeof(PrepareLightsConstants)),
+        nvrhi::BindingSetItem::ConstantBuffer(0, m_ConstantBuffer),// PushConstants(0, sizeof(PrepareLightsConstants)),
         nvrhi::BindingSetItem::StructuredBuffer_UAV(0, resources.LightDataBuffer),
         nvrhi::BindingSetItem::TypedBuffer_UAV(1, resources.LightIndexMappingBuffer),
         nvrhi::BindingSetItem::Texture_UAV(2, resources.LocalLightPdfTexture),
@@ -99,10 +110,12 @@ void PrepareLightsPass::CreateBindingSet(RtxdiResources& resources, const Render
         nvrhi::BindingSetItem::StructuredBuffer_SRV(3, m_Scene->GetGeometryBuffer()),
         nvrhi::BindingSetItem::StructuredBuffer_SRV(4, m_Scene->GetGeometryDebugBuffer()),
         nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_Scene->GetMaterialBuffer()),
-        nvrhi::BindingSetItem::Texture_SRV(6, m_EnvironmentMap ? m_EnvironmentMap->GetEnvironmentMap() : m_CommonPasses->m_BlackTexture),
+        nvrhi::BindingSetItem::Texture_SRV(6, m_EnvironmentMap ? m_EnvironmentMap->GetEnvMapCube() : m_CommonPasses->m_BlackCubeMapArray),
+        nvrhi::BindingSetItem::Texture_SRV(7, m_EnvironmentMap ? m_EnvironmentMap->GetImportanceSampling()->GetImportanceMap() : m_CommonPasses->m_BlackTexture),
         nvrhi::BindingSetItem::Texture_UAV(50, renderTargets.DebugVizOutput),
         nvrhi::BindingSetItem::Sampler(0, m_CommonPasses->m_AnisotropicWrapSampler),
-        nvrhi::BindingSetItem::Sampler(1, m_EnvironmentMap ? m_EnvironmentMap->GetEnvironmentSampler() : m_CommonPasses->m_AnisotropicWrapSampler)
+        nvrhi::BindingSetItem::Sampler(1, m_EnvironmentMap ? m_EnvironmentMap->GetEnvMapCubeSampler() : m_CommonPasses->m_AnisotropicWrapSampler),
+        nvrhi::BindingSetItem::Sampler(2, m_EnvironmentMap ? m_EnvironmentMap->GetImportanceSampling()->GetImportanceMapSampler() : m_CommonPasses->m_AnisotropicWrapSampler)
     };
 
     m_BindingSet = m_Device->createBindingSet(bindingSetDesc, m_BindingLayout);
@@ -211,10 +224,11 @@ static uint16_t fp32ToFp16(float v)
     return (uint16_t)(sign >> 16 | body >> 13) & 0xFFFF;
 }
 
-static bool ConvertLight(const donut::engine::Light& light, PolymorphicLightInfo& polymorphic, bool enableImportanceSampledEnvironmentLight, EnvironmentMap* environmentMap)
+static bool ConvertLight(const donut::engine::Light& light, PolymorphicLightInfo& polymorphic, bool enableImportanceSampledEnvironmentLight, EnvMapBaker* environmentMap)
 {
     switch (light.GetLightType())
     {
+#if 0 // we're now baking these into the environment map!
     case LightType_Directional: {
         auto& directional = static_cast<const donut::engine::DirectionalLight&>(light);
         float clampedAngularSize = clamp(directional.angularSize, 0.f, 90.f);
@@ -229,6 +243,7 @@ static bool ConvertLight(const donut::engine::Light& light, PolymorphicLightInfo
         polymorphic.scalars = fp32ToFp16(halfAngularSizeRad) | (fp32ToFp16(solidAngle) << 16);
         return true;
     }
+#endif
  
 	case LightType_Spot: {
 		auto& spot = static_cast<const SpotLight&>(light);
@@ -323,8 +338,7 @@ static bool ConvertLight(const donut::engine::Light& light, PolymorphicLightInfo
 
             polymorphic.colorTypeAndFlags = (uint32_t)PolymorphicLightType::kEnvironment << kPolymorphicLightTypeShift;
         
-            const uint2 envMapDimensions = environmentMap->GetEnvMapDimensions();
-            polymorphic.direction2 = envMapDimensions.x | (envMapDimensions.y << 16);
+            polymorphic.direction2 = 0;
 
             return true;
         }
@@ -350,13 +364,10 @@ static int isInfiniteLight(const donut::engine::Light& light)
     }
 }
 
-void PrepareLightsPass::Process(
-    nvrhi::ICommandList* commandList, 
-    const rtxdi::Context& context,
-    rtxdi::FrameParameters& outFrameParameters)
+RTXDI_LightBufferParameters PrepareLightsPass::Process(nvrhi::ICommandList* commandList)
 {
-    const rtxdi::ContextParameters& contextParameters = context.GetParameters();
-
+    RTXDI_LightBufferParameters lightBufferParams = {};
+    
     commandList->beginMarker("PrepareLights");
 
     std::vector<PrepareLightsTask> tasks;
@@ -411,8 +422,8 @@ void PrepareLightsPass::Process(
 
     commandList->writeBuffer(m_GeometryInstanceToLightBuffer, geometryInstanceToLight.data(), geometryInstanceToLight.size() * sizeof(uint32_t));
 
-    outFrameParameters.firstLocalLight = 0;
-    outFrameParameters.numLocalLights = lightBufferOffset;
+	lightBufferParams.localLightBufferRegion.firstLightIndex = 0;
+	lightBufferParams.localLightBufferRegion.numLights = lightBufferOffset;
 
     auto sortedLights = m_Scene->GetSceneGraph()->GetLights();
     std::sort(sortedLights.begin(), sortedLights.end(), [](const auto& a, const auto& b) 
@@ -452,13 +463,13 @@ void PrepareLightsPass::Process(
         else
             numFinitePrimLights++;
     }
-    
-    outFrameParameters.numLocalLights += numFinitePrimLights;
-    outFrameParameters.firstInfiniteLight = outFrameParameters.numLocalLights;
+
+	lightBufferParams.localLightBufferRegion.numLights += numFinitePrimLights;
+	lightBufferParams.infiniteLightBufferRegion.firstLightIndex = lightBufferParams.localLightBufferRegion.numLights;
     // Note we do not include the environment map in numInfiniteLights
-    outFrameParameters.numInfiniteLights = numInfinitePrimLights - enableImportanceSampledEnvironmentLight;
-    outFrameParameters.environmentLightIndex = outFrameParameters.firstInfiniteLight + outFrameParameters.numInfiniteLights;
-    outFrameParameters.environmentLightPresent = enableImportanceSampledEnvironmentLight;
+	lightBufferParams.infiniteLightBufferRegion.numLights = numInfinitePrimLights - enableImportanceSampledEnvironmentLight;;
+	lightBufferParams.environmentLightParams.lightIndex = lightBufferParams.infiniteLightBufferRegion.firstLightIndex + lightBufferParams.infiniteLightBufferRegion.numLights;
+	lightBufferParams.environmentLightParams.lightPresent = enableImportanceSampledEnvironmentLight ? 1u : 0u;
     
     commandList->writeBuffer(m_TaskBuffer, tasks.data(), tasks.size() * sizeof(PrepareLightsTask));
 
@@ -478,20 +489,23 @@ void PrepareLightsPass::Process(
     nvrhi::ComputeState state;
     state.pipeline = m_ComputePipeline;
     state.bindings = { m_BindingSet, m_Scene->GetDescriptorTable() };
-    commandList->setComputeState(state);
 
     PrepareLightsConstants constants;
     constants.numTasks = uint32_t(tasks.size());
     constants.currentFrameLightOffset = m_MaxLightsInBuffer * m_OddFrame;
     constants.previousFrameLightOffset = m_MaxLightsInBuffer * !m_OddFrame;
     constants._padding = 0;
-    constants.envMapData = {};
+    constants.envMapSceneParams = {};
     if (enableImportanceSampledEnvironmentLight)
     {
-        constants.envMapData = m_EnvironmentMap->GetEnvMapData();
+        constants.envMapSceneParams = m_EnvironmentMapSceneParams;
+        constants.envMapImportanceSamplingParams = m_EnvironmentMap->GetImportanceSampling()->GetShaderParams( );
     }
 
-    commandList->setPushConstants(&constants, sizeof(constants));
+    commandList->writeBuffer(m_ConstantBuffer, &constants, sizeof(PrepareLightsConstants));
+    //commandList->setPushConstants(&constants, sizeof(constants));
+
+    commandList->setComputeState(state);
     
     //Skip the prepare lights dispatch if there are no lights. Note the Environment map is handled in another pass
     if (lightBufferOffset > 0)
@@ -499,14 +513,16 @@ void PrepareLightsPass::Process(
 
     commandList->endMarker();
 
-    outFrameParameters.firstLocalLight += constants.currentFrameLightOffset;
-    outFrameParameters.firstInfiniteLight += constants.currentFrameLightOffset;
-    outFrameParameters.environmentLightIndex += constants.currentFrameLightOffset;
-
+	lightBufferParams.localLightBufferRegion.firstLightIndex += constants.currentFrameLightOffset;
+	lightBufferParams.infiniteLightBufferRegion.firstLightIndex += constants.currentFrameLightOffset;
+	lightBufferParams.environmentLightParams.lightIndex += constants.currentFrameLightOffset;
+    
     m_OddFrame = !m_OddFrame;
+
+    return lightBufferParams;
 }
 
-nvrhi::TextureHandle PrepareLightsPass::GetEnvironmentMap()
+nvrhi::TextureHandle PrepareLightsPass::GetEnvironmentMapTexture()
 {
-    return m_EnvironmentMap ? m_EnvironmentMap->GetEnvironmentMap() : nullptr;
+    return m_EnvironmentMap ? m_EnvironmentMap->GetEnvMapCube() : nullptr;
 }

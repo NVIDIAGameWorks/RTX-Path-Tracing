@@ -15,7 +15,6 @@
 #include <donut/shaders/vulkan.hlsli>
 
 #include "SampleConstantBuffer.h"
-#include "ShaderResourceBindings.hlsli"
 
 RaytracingAccelerationStructure SceneBVH : register(t0);
 StructuredBuffer<SubInstanceData> t_SubInstanceData         : register(t1);
@@ -23,14 +22,13 @@ StructuredBuffer<InstanceData> t_InstanceData               : register(t2);
 StructuredBuffer<GeometryData> t_GeometryData               : register(t3);
 StructuredBuffer<GeometryDebugData> t_GeometryDebugData     : register(t4);
 StructuredBuffer<MaterialConstants> t_MaterialConstants     : register(t5);
-Texture2D<float4> t_EnvironmentMap                          : register(t6);
-Texture2D<float> t_ImportanceMap                            : register(t7);
+TextureCube<float4> t_EnvironmentMap                        : register(t6);
+Texture2D<float> t_EnvironmentMapImportanceMap              : register(t7);
 Buffer<uint2>    t_PresampledEnvMapBuffer                   : register(t8);
-
 
 SamplerState s_MaterialSampler                              : register(s0);
 SamplerState s_EnvironmentMapSampler                        : register(s1);
-SamplerState s_ImportanceSampler                            : register(s2);
+SamplerState s_EnvironmentMapImportanceSampler              : register(s2);
 
 VK_BINDING(0, 1) ByteAddressBuffer t_BindlessBuffers[]      : register(t0, space1);
 VK_BINDING(1, 1) Texture2D t_BindlessTextures[]             : register(t0, space2);

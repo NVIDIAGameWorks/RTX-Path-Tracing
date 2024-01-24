@@ -15,8 +15,8 @@
 #include "HelperFunctions.hlsli"
 #include "LightShaping.hlsli"
 #include "../PathTracer/Utils/Color/ColorHelpers.hlsli"
-#include "../PathTracer/Utils/Geometry/GeometryHelpers.hlsli"
-#include "../PathTracer/Scene/Lights/EnvMapSampler.hlsli"
+#include "../PathTracer/Lighting/Distant.hlsli"
+#include "../PathTracer/PathTracerHelpers.hlsli"
 #include <rtxdi/RtxdiHelpers.hlsli>
 
 #define LIGHT_SAMPING_EPSILON 1e-10
@@ -377,7 +377,7 @@ struct TriangleLight
 
         float3 bary = sampleTriangle(random);
         result.position = base + edge1 * bary.y + edge2 * bary.z;
-        result.position = computeRayOrigin(result.position, normal);
+        result.position = ComputeRayOrigin(result.position, normal);
         result.normal = normal;
 
         const float3 toLight = result.position - viewerPosition;
@@ -464,40 +464,30 @@ struct TriangleLight
 
 struct EnvironmentLight
 {
-    uint2 textureSize;
-   
     // Interface methods
 
     PolymorphicLightSample calcSample(in const float2 random, in const float3 viewerPosition)
     {
         PolymorphicLightSample pls;
        
-        EnvMap envMap = EnvMap::make(
-            t_EnvironmentMap,
-            s_EnvironmentMapSampler,
-            g_Const.envMapData
-        );
+        Buffer<uint2> unused;
+        EnvMapSampler envMapSampler = EnvMapSampler::make( s_EnvironmentMapImportanceSampler, t_EnvironmentMapImportanceMap, g_Const.envMapImportanceSamplingParams,
+                                                            t_EnvironmentMap, s_EnvironmentMapSampler, g_Const.envMapSceneParams, unused );
 
-        float3 direction = envMap.uvToWorld(random);
-        pls.position = viewerPosition + direction * DISTANT_LIGHT_DISTANCE;
-        pls.normal = -direction;
-        pls.radiance = envMap.eval(random);
-
-        float elevation = (random.y - 0.5f) * M_PI;
-        float cosElevation = cos(elevation);
-        // Inverse of the solid angle of one texel of the environment map
-        pls.solidAnglePdf = (textureSize.x * textureSize.y) / max(FLT_MIN, 2.f * M_PI * M_PI * cosElevation);
+        float3 worldDir = Decode_Oct( random );
+        pls.position = viewerPosition + worldDir * DISTANT_LIGHT_DISTANCE;
+        pls.normal = -worldDir;
+        pls.radiance = envMapSampler.Eval(worldDir);
+        pls.solidAnglePdf = envMapSampler.MIPDescentEvalPdf(worldDir);
+        
         return pls;
-    }
+    }    
 
     // Helper methods
 
     static EnvironmentLight Create(in const PolymorphicLightInfo lightInfo)
     {
         EnvironmentLight envLight;
-
-        envLight.textureSize.x = lightInfo.direction2 & 0xffff;
-        envLight.textureSize.y = lightInfo.direction2 >> 16;
 
         return envLight;
     }

@@ -335,6 +335,7 @@ void NrdIntegration::RunDenoiserPasses(
     float disocclusionThreshold,
     float disocclusionThresholdAlternate,
     bool useDisocclusionThresholdAlternateMix,
+    float timeDeltaBetweenFrames,
     bool enableValidation,
     const void* methodSettings)
 {
@@ -365,6 +366,7 @@ void NrdIntegration::RunDenoiserPasses(
     commonSettings.disocclusionThreshold = disocclusionThreshold;
     commonSettings.disocclusionThresholdAlternate = disocclusionThresholdAlternate;
     commonSettings.isDisocclusionThresholdMixAvailable = useDisocclusionThresholdAlternateMix;
+    commonSettings.timeDeltaBetweenFrames = timeDeltaBetweenFrames;
 
     nrd::SetCommonSettings(*m_Instance, commonSettings);
 

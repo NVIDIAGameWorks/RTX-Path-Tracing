@@ -23,7 +23,6 @@ PostProcess::PostProcess( nvrhi::IDevice* device, std::shared_ptr<donut::engine:
     : m_Device(device)
     , m_CommonPasses(commonPasses)
     , m_BindingCache(device)
-//    , m_FramebufferFactory(colorFramebufferFactory)
 {
     for( uint32_t i = 0; i < (uint32_t)RenderPassType::MaxCount; i++ )
     {
@@ -176,9 +175,7 @@ void PostProcess::Apply(nvrhi::ICommandList* commandList, ComputePassType passTy
         pipelineDesc.bindingLayouts = { bindingLayout };
         pipelineDesc.CS = m_ComputeShaders[passIndex];
         m_ComputePSOs[passIndex] = m_Device->createComputePipeline(pipelineDesc);
-        m_BindingLayoutCSs[passIndex] = bindingLayout;
     }
-    assert(m_BindingLayoutCSs[passIndex] == bindingLayout);
 
     nvrhi::ComputeState state;
     state.bindings = { bindingSet };

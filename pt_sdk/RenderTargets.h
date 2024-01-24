@@ -61,9 +61,8 @@ public:
     
     nvrhi::TextureHandle CombinedHistoryClampRelax;         // all DenoiserDisocclusionThresholdMix combined together - used to tell TAA where to relax disocclusion test to minimize aliasing
 
-    // TODO: read max plane count!
-    nvrhi::TextureHandle DenoiserOutDiffRadianceHitDist[cStablePlaneCount]; // output from denoiser, texture per denoiser instance
-    nvrhi::TextureHandle DenoiserOutSpecRadianceHitDist[cStablePlaneCount]; // output from denoiser, texture per denoiser instance
+    nvrhi::TextureHandle DenoiserOutDiffRadianceHitDist[cStablePlaneCount]; // output from denoiser, texture per denoiser instance - search for OUT_DIFF_RADIANCE_HITDIST in NRDDescs.h for more info
+    nvrhi::TextureHandle DenoiserOutSpecRadianceHitDist[cStablePlaneCount]; // output from denoiser, texture per denoiser instance - search for OUT_SPEC_RADIANCE_HITDIST in NRDDescs.h for more info
     nvrhi::TextureHandle DenoiserOutValidation = nullptr;   // output from denoiser (for validation) - leave nullptr to disable validation
 
     nvrhi::TextureHandle SecondarySurfacePositionNormal;    // input to restir gi

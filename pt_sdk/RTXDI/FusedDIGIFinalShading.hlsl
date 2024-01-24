@@ -17,7 +17,7 @@
 void main(uint2 dispatchThreadID : SV_DispatchThreadID)
 {
     const uint2 reservoirPos = dispatchThreadID.xy;
-    uint2 pixelPos = RTXDI_ReservoirPosToPixelPos(reservoirPos, g_RtxdiBridgeConst.runtimeParams);
+    const uint2 pixelPos = RTXDI_ReservoirPosToPixelPos(reservoirPos, g_RtxdiBridgeConst.runtimeParams.activeCheckerboardField);
 
     RAB_Surface surface = RAB_GetGBufferSurface(pixelPos, false);
 

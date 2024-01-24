@@ -8,7 +8,7 @@
 * license agreement from NVIDIA CORPORATION is strictly prohibited.
 */
 
-#include "Scene/Lights/EnvMapData.hlsli"
+#include "Lighting/Types.h"
 
 #ifndef __PATH_TRACER_SHARED_H__
 #define __PATH_TRACER_SHARED_H__
@@ -74,7 +74,7 @@ struct PathTracerConstants
     float   stablePlanesSuppressPrimaryIndirectSpecularK;
 
     float   denoiserRadianceClampK;
-    uint    _padding2;
+    uint    NEEBoostSamplingOnDominantPlane;
     float   stablePlanesAntiAliasingFallthrough;
     uint    activeStablePlaneCount;
 

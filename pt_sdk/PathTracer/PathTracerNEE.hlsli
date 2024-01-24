@@ -14,11 +14,9 @@
 #include "PathTracerTypes.hlsli"
 
 //#include "Scene/ShadingData.hlsli"
-#include "Scene/Lights/EnvMapSampler.hlsli"
+#include "Lighting/Distant.hlsli"
 
 #include "LightSampling/LightSamplingLocal.hlsli"
-
-#define ENVMAP_IMPORTANCE_SAMPLING_TYPE     1   // 0 - reference MIP descent; 1 - pre-sampling
 
 namespace PathTracer
 {
@@ -69,21 +67,24 @@ namespace PathTracer
         \param[out] ls Struct describing valid samples.
         \return True if the sample is valid and has nonzero contribution, false otherwise.
     */
-    inline bool GenerateEnvMapSample(const PathVertex vertex, inout SampleGenerator sampleGenerator, out PathLightSample ls)
+    inline bool GenerateEnvMapSample(const uint envMapISType, const PathVertex vertex, inout SampleGenerator sampleGenerator, out PathLightSample ls)
     {
         ls = PathLightSample::make();   // Default initialization to avoid divergence at returns. TODO: might be unnecessary; check for perf and side-effects
 
-        if ( !(kUseEnvLights && Bridge::EnvMap::HasEnvMap()) )
+        if ( !(kUseEnvLights && Bridge::HasEnvMap()) )
             return false;
         
         // Sample environment map.
-#if ENVMAP_IMPORTANCE_SAMPLING_TYPE == 0    // slower, full (MIP descent) sampling - works well with low discrepancy sampling
-        EnvMapSample lightSample = Bridge::EnvMap::Sample(sampleNext2D(sampleGenerator));
-#elif ENVMAP_IMPORTANCE_SAMPLING_TYPE == 1  // faster, using the pre-sampled list - doesn't get any benefit from low discrepancy sampling
-        EnvMapSample lightSample = Bridge::EnvMap::SamplePresampled(sampleNext1D(sampleGenerator));
-#else
-        #error unsupported ENVMAP_IMPORTANCE_SAMPLING_TYPE
-#endif
+        EnvMapSampler envSampler = Bridge::CreateEnvMapImportanceSampler();
+        DistantLightSample lightSample;
+        if (envMapISType == 0)      // low quality uniform sampling
+            lightSample = envSampler.UniformSample( sampleNext2D(sampleGenerator) );
+        else if (envMapISType == 1) // slower, full (MIP descent) sampling - works well with low discrepancy sampling
+            lightSample = envSampler.MIPDescentSample( sampleNext2D(sampleGenerator) );
+        else if (envMapISType == 2) // faster, using the pre-sampled list - doesn't get any benefit from low discrepancy sampling
+            lightSample = envSampler.PreSampledSample( sampleNext1D(sampleGenerator) );
+        else 
+            return false;
 
 #if 0 // pdf correctness test
     float rpdf = envMapSampler.evalPdf(lightSample.dir);
@@ -96,290 +97,16 @@ namespace PathTracer
 #endif
        
         // Setup returned sample.
-        ls.Li = lightSample.pdf > 0.f ? lightSample.Le / lightSample.pdf : float3(0,0,0);
-        ls.Pdf = lightSample.pdf;
+        ls.Li = lightSample.Pdf > 0.f ? lightSample.Le / lightSample.Pdf : float3(0,0,0);
+        ls.Pdf = lightSample.Pdf;
         ls.Distance = kMaxRayTravel;
-        ls.Direction = lightSample.dir;
+        ls.Direction = lightSample.Dir;
         
         //ls.lightType = (uint)PathLightType::EnvMap;
 
         return any(ls.Li > 0.f);
     }
-    
-    /** Generates a light sample on the emissive geometry.
-        \param[in] vertex Path vertex.
-        \param[in] upperHemisphere True if only upper hemisphere (w.r.t. shading normal) should be considered.
-        \param[in,out] sampleGenerator Sample generator.
-        \param[out] ls Struct describing valid samples.
-        \return True if the sample is valid and has nonzero contribution, false otherwise.
-    */
-    inline bool GenerateEmissiveSample(const PathVertex vertex, const bool upperHemisphere, inout SampleGenerator sampleGenerator, out PathLightSample ls)
-    {
-        ls = PathLightSample::make();   // Default initialization to avoid divergence at returns. TODO: might be unnecessary; check for perf and side-effects
-        return false;
-#if 0 // to be implemented yet
-        if (!kUseEmissiveLights) return false;
 
-        TriangleLightSample tls;
-        if (!emissiveSampler.sampleLight(vertex.pos, vertex.normal, upperHemisphere, sampleGenerator, tls)) return false;
-
-        // Setup returned sample.
-        ls.Li = tls.pdf > 0.f ? tls.Le / tls.pdf : float3(0);
-        ls.pdf = tls.pdf;
-        // Offset shading and light position to avoid self-intersection.
-        float3 lightPos = computeRayOrigin(tls.posW, tls.normalW);
-        ls.origin = vertex.getRayOrigin(lightPos - vertex.pos);
-        float3 toLight = lightPos - ls.origin;
-        ls.distance = length(toLight);
-        ls.dir = normalize(toLight);
-
-        ls.lightType = (uint)PathLightType::Emissive;
-
-        return any(ls.Li > 0.f);
-#endif
-    }
-
-    /** Generates a light sample on the analytic lights.
-        \param[in] vertex Path vertex.
-        \param[in,out] sampleGenerator Sample generator.
-        \param[out] ls Struct describing valid samples.
-        \return True if the sample is valid and has nonzero contribution, false otherwise.
-    */
-    inline bool GenerateAnalyticLightSample(const PathVertex vertex, inout SampleGenerator sampleGenerator, out PathLightSample ls)
-    {
-        ls = PathLightSample::make();   // Default initialization to avoid divergence at returns. TODO: might be unnecessary; check for perf and side-effects
-        
-        uint lightCount = Bridge::getAnalyticLightCount(); // gScene.getLightCount();
-        if (!kUseAnalyticLights || lightCount == 0) return false;
-        
-        // Sample analytic light source selected uniformly from the light list.
-        // TODO: Sample based on estimated contributions as pdf.
-        uint lightIndex = min(uint(sampleNext1D(sampleGenerator) * lightCount), lightCount - 1);
-        
-        // Sample local light source.
-        AnalyticLightSample lightSample;
-        if (!Bridge::sampleAnalyticLight(vertex.pos, /*gScene.getLight*/(lightIndex), sampleGenerator, lightSample)) return false;
-        
-        // Setup returned sample.
-        ls.Pdf = lightSample.pdf / lightCount;
-        ls.Li = lightSample.Li * lightCount;
-        // Analytic lights do not currently have a geometric representation in the scene.
-        // Do not worry about adjusting the ray length to avoid self-intersections at the light.
-        ls.Distance = lightSample.distance;
-        ls.Direction = lightSample.dir;
-        
-        //ls.lightType = (uint)PathLightType::Analytic;
-        
-        return any(ls.Li > 0.f);
-    }
-
-#if 0 // phasing out, obsolete
-    
-    /** Samples a light source in the scene.
-        This function calls that the sampling function for the chosen light type.
-        The upper/lower hemisphere is defined as the union of the hemispheres w.r.t. to the shading and face normals.
-        \param[in] lightType Light Type.
-        \param[in] vertex Path vertex.
-        \param[in] sampleUpperHemisphere True if the upper hemisphere should be sampled.
-        \param[in] sampleLowerHemisphere True if the lower hemisphere should be sampled.
-        \param[in,out] sampleGenerator Sample generator.
-        \param[out] ls Struct describing valid samples.
-        \return True if the sample is valid and has nonzero contribution, false otherwise.
-    */
-    inline bool GenerateLightSample(const uint lightType, const PathVertex vertex, const bool sampleUpperHemisphere, const bool sampleLowerHemisphere, inout SampleGenerator sampleGenerator, out PathLightSample ls)
-    {
-        ls = PathLightSample::make();   // Default initialization to avoid divergence at returns. TODO: might be unnecessary; check for perf and side-effects
-        
-        bool valid = false;
-        switch (lightType)
-        {
-            case ( (uint)PathLightType::EnvMap ):           valid = GenerateEnvMapSample(vertex, sampleGenerator, ls); break;
-            case ( (uint)PathLightType::Emissive ):         valid = GenerateEmissiveSample(vertex, sampleUpperHemisphere && !sampleLowerHemisphere, sampleGenerator, ls); break;
-            case ( (uint)(uint)PathLightType::Analytic ):   valid = GenerateAnalyticLightSample(vertex, sampleGenerator, ls); break;
-        };
-        if (!valid) return false;
-        
-        if( !(sampleUpperHemisphere && sampleLowerHemisphere) )
-        {
-            // Reject samples in non-requested hemispheres.
-            float cosTheta = dot(vertex.normal, ls.Direction);
-            // Flip the face normal to point in the same hemisphere as the shading normal.
-            float3 faceNormal = sign(dot(vertex.normal, vertex.faceNormal)) * vertex.faceNormal;
-            float cosThetaFace = dot(faceNormal, ls.dir);
-            if (!sampleUpperHemisphere && (max(cosTheta, cosThetaFace) >= -kMinCosTheta)) return false;
-            if (!sampleLowerHemisphere && (min(cosTheta, cosThetaFace) <= kMinCosTheta)) return false;
-        }
-
-        return true;
-    }
-    
-    /** Return the probabilities for selecting different light types.
-        \param[out] p Probabilities.
-    */
-    inline void FalcorStyle_GetLightTypeSelectionProbabilities(out float p[3])
-    {
-        // Set relative probabilities of the different sampling techniques.
-        // TODO: These should use estimated irradiance from each light type. Using equal probabilities for now.
-        p[0] = (kUseEnvLights && Bridge::EnvMap::HasEnvMap()) ? 1.f : 0.f;
-        p[1] = 0; // kUseEmissiveLights ? 1.f : 0.f;
-        p[2] = kUseAnalyticLights ? 1.f : 0.f;
-
-        // Normalize probabilities. Early out if zero.
-        float sum = p[0] + p[1] + p[2];
-        if (sum == 0.f) return;
-
-        float invSum = 1.f / sum;
-        p[0] *= invSum;
-        p[1] *= invSum;
-        p[2] *= invSum;
-    }
-
-    inline float FalcorStyle_GetEnvMapSelectionProbability()   { float p[3]; FalcorStyle_GetLightTypeSelectionProbabilities(p); return p[0]; }
-    inline float FalcorStyle_GetEmissiveSelectionProbability() { float p[3]; FalcorStyle_GetLightTypeSelectionProbabilities(p); return p[1]; }
-    inline float FalcorStyle_GetAnalyicSelectionProbability()  { float p[3]; FalcorStyle_GetLightTypeSelectionProbabilities(p); return p[2]; }
-
-    /** Select a light type for sampling.
-        \param[out] lightType Selected light type.
-        \param[out] pdf Probability for selected type.
-        \param[in,out] sampleGenerator Sample generator.
-        \return Return true if selection is valid.
-    */
-    inline bool FalcorStyle_SelectLightType(out uint lightType, out float pdf, inout SampleGenerator sampleGenerator)
-    {
-        // lightType = (uint)PathLightType::EnvMap; pdf = 1.0; return true; // <- use to override for testing
-        
-        float p[3];
-        FalcorStyle_GetLightTypeSelectionProbabilities(p);
-
-        float u = sampleNext1D(sampleGenerator);
-        lightType = 0.0;
-        pdf = 0.0;
-
-        [unroll]
-        for (lightType = 0; lightType < 3; ++lightType)
-        {
-            if (u < p[lightType])
-            {
-                pdf = p[lightType];
-                return true;
-            }
-            u -= p[lightType];
-        }
-
-        return false;
-    }
-
-    // 'result' argument is expected to have been initialized to 'NEEResult::empty()'
-    inline void HandleNEE_FalcorStyle(inout NEEResult inoutResult, const PathState preScatterPath, const ScatterResult scatterInfo, bool flagLightSampledUpper, bool flagLightSampledLower,
-                                        const ShadingData shadingData, const ActiveBSDF bsdf, inout SampleGenerator sampleGenerator, const WorkingContext workingContext)
-    {
-        sampleGenerator.startEffect(SampleGeneratorEffectSeed::NextEventEstimation);
-        
-        // Determine if BSDF has non-delta lobes.
-        const uint lobes = bsdf.getLobes(shadingData);
-
-        PathLightSample ls = PathLightSample::make();
-        bool validSample = false;
-
-        // Setup path vertex.
-        PathVertex vertex = PathVertex::make(preScatterPath.getVertexIndex(), shadingData.posW, shadingData.N, shadingData.faceN);
-
-        // Decide on which light type to sample
-        uint lightType;
-        float selectionPdf;
-        if (FalcorStyle_SelectLightType(lightType, selectionPdf, sampleGenerator))
-        {
-            // Sample a light.
-            validSample = GenerateLightSample(lightType, vertex, flagLightSampledUpper, flagLightSampledLower, sampleGenerator, ls);
-                
-            // Account for light type selection.
-            ls.pdf *= selectionPdf;
-            ls.Li /= selectionPdf;
-        }
-
-#if 0 // there's cost to enabling this
-        if( debugPath && isPrimaryHit )
-        {
-            DebugLogger::DebugPrint( 0, validSample?(1):(0) );
-            DebugLogger::DebugPrint( 1, float4(ls.origin, ls.lightType) );      // origin, type
-            DebugLogger::DebugPrint( 2, float4(ls.dir, ls.distance) );          // dir, distance
-            DebugLogger::DebugPrint( 3, float4(ls.Li, ls.pdf) );                // radiance, pdf
-        }
-#endif
-
-        if (validSample)
-        {
-            // Apply MIS weight.
-            if (ls.lightType != (uint) PathLightType::Analytic)
-            {
-                float scatterPdfForDir = bsdf.evalPdf(shadingData, ls.dir, kUseBSDFSampling);
-                ls.Li *= EvalMIS(1, ls.pdf, 1, scatterPdfForDir);
-            }
-
-#if PTSDK_DIFFUSE_SPECULAR_SPLIT
-            float3 bsdfThpDiff, bsdfThpSpec;
-            bsdf.eval(shadingData, ls.dir, bsdfThpDiff, bsdfThpSpec);
-            float3 bsdfThp = bsdfThpDiff + bsdfThpSpec;
-#else
-            float3 bsdfThp = bsdf.eval(sd, ls.dir);
-#endif
-
-            float3 neeContribution = /*preScatterPath.thp **/bsdfThp * ls.Li;
-
-            if (any(neeContribution > 0))
-            {
-                const RayDesc ray = ls.getVisibilityRay().toRayDesc();
-                    
-                // Trace visibility ray
-                // If RTXDI is enabled, a visibility ray has already been fired so we can skip it 
-                // here. ( Non-visible lights result in validSample=false, so we won't get this far)
-                //logTraceRay(PixelStatsRayType::Visibility);
-                bool visible = Bridge::traceVisibilityRay(ray, preScatterPath.rayCone, preScatterPath.getVertexIndex(), workingContext.debug);
-                    
-                if (visible)
-                {
-                    float neeFireflyFilterK = ComputeNewScatterFireflyFilterK(preScatterPath.fireflyFilterK, workingContext.ptConsts.camera.pixelConeSpreadAngle, ls.pdf, 1.0);
-
-                    inoutResult.DiffuseRadiance = FireflyFilter(bsdfThpDiff * ls.Li, workingContext.ptConsts.fireflyFilterThreshold, neeFireflyFilterK);
-                    inoutResult.SpecularRadiance = FireflyFilter(bsdfThpSpec * ls.Li, workingContext.ptConsts.fireflyFilterThreshold, neeFireflyFilterK);
-                    inoutResult.RadianceSourceDistance = ls.distance;
-                    inoutResult.Valid = true;
-                }
-            }
-        }
-       
-        // compute NEE MIS here for emissive and environment; in case the scatter was not valid or is a delta bounce we just early out, leaving at default weights of 1.0 (performance optimization)
-        if (scatterInfo.Valid && !scatterInfo.IsDelta)
-        {                                       
-            // environment map
-            if (kUseEnvLights && Bridge::EnvMap::HasEnvMap())
-            {
-                // If NEE and MIS are enabled, and we've already sampled the env map,
-                // then we need to evaluate the MIS weight here to account for the remaining contribution.
-
-                // Evaluate PDF, had it been generated with light sampling.
-                float lightPdf = FalcorStyle_GetEnvMapSelectionProbability() * Bridge::EnvMap::EvalPdf(scatterInfo.Dir);
-              
-                // Compute MIS weight by combining this with BSDF sampling.
-                // Note we can assume postScatterPath.pdf > 0.f since we shouldn't have got here otherwise.
-                inoutResult.ScatterEnvironmentMISWeight = EvalMIS(1, scatterInfo.Pdf, 1, lightPdf);
-
-                // an example of debugging envmap MIS for the specific pixel selected in the UI, at the first bounce (vertex index 1)
-                //if( workingContext.debug.IsDebugPixel() )
-                //    workingContext.debug.Print( postScatterPath.getVertexIndex(), postScatterPath.pdf, lightPdf, misWeight );
-            }
-            
-            // emissive triangles
-            if (kUseEmissiveLights)
-            {
-                // not yet using emissive lights importance sampling so this part is empty
-                
-                inoutResult.ScatterEmissiveMISWeight = 1.0; // <- note, 1.0 is the default state, so setting it here is unnecessary
-            }
-        }
-    }
-#endif
-    
     // This will ray cast and, if light visible, accumulate radiance properly, including doing weighted sum for 
     bool ProcessLightSample(inout NEEResult accum, inout float luminanceSum, const PathLightSample lightSample, 
                                 const ShadingData shadingData, const ActiveBSDF bsdf, const PathState preScatterPath, const WorkingContext workingContext)
@@ -398,10 +125,12 @@ namespace PathTracer
             visible = Bridge::traceVisibilityRay(ray, preScatterPath.rayCone, preScatterPath.getVertexIndex(), workingContext.debug);
             if (visible)
             {
+                float grazingFadeOut = (shadingData.shadowNoLFadeout>0)?(ComputeLowGrazingAngleFalloff( ray.Direction, shadingData.vertexN, shadingData.shadowNoLFadeout, 2.0 * shadingData.shadowNoLFadeout )):(1.0);
+                
                 float neeFireflyFilterK = ComputeNewScatterFireflyFilterK(preScatterPath.fireflyFilterK, workingContext.ptConsts.camera.pixelConeSpreadAngle, lightSample.Pdf, 1.0);
 
-                float3 diffRadiance = FireflyFilter(bsdfThpDiff * lightSample.Li, workingContext.ptConsts.fireflyFilterThreshold, neeFireflyFilterK);
-                float3 specRadiance = FireflyFilter(bsdfThpSpec * lightSample.Li, workingContext.ptConsts.fireflyFilterThreshold, neeFireflyFilterK);
+                float3 diffRadiance = grazingFadeOut * FireflyFilter(bsdfThpDiff * lightSample.Li, workingContext.ptConsts.fireflyFilterThreshold, neeFireflyFilterK);
+                float3 specRadiance = grazingFadeOut * FireflyFilter(bsdfThpSpec * lightSample.Li, workingContext.ptConsts.fireflyFilterThreshold, neeFireflyFilterK);
                 
                 accum.DiffuseRadiance += diffRadiance;
                 accum.SpecularRadiance += specRadiance;
@@ -423,20 +152,26 @@ namespace PathTracer
     }
     
     // 'result' argument is expected to have been initialized to 'NEEResult::empty()'
-    inline void HandleNEE_MultipleSamples(inout NEEResult inoutResult, const PathState preScatterPath, const ScatterResult scatterInfo, bool flagLightSampledUpper, bool flagLightSampledLower,
-                                        const ShadingData shadingData, const ActiveBSDF bsdf, inout SampleGenerator sampleGenerator, const WorkingContext workingContext)
+    inline void HandleNEE_MultipleSamples(inout NEEResult inoutResult, const PathState preScatterPath, const ScatterResult scatterInfo, const ShadingData shadingData, const ActiveBSDF bsdf, 
+                                            inout SampleGenerator sampleGenerator, const WorkingContext workingContext, int sampleCountMultiplier)
     {
         sampleGenerator.startEffect(SampleGeneratorEffectSeed::NextEventEstimation, false); // disabled until we figure out how to get it working with presampling
         //sampleGenerator.startEffect(SampleGeneratorEffectSeed::NextEventEstimation, preScatterPath.getCounter(PackedCounters::DiffuseBounces)<DisableLowDiscrepancySamplingAfterDiffuseBounceCount);
         
         // There's a cost to having these as a dynamic constant so an option for production code is to hard code
-        const uint distantSamples       = (kUseEnvLights && Bridge::EnvMap::HasEnvMap()) ? (workingContext.ptConsts.NEEDistantFullSamples)   : (0);
-        const uint localSamples         = (true)                                         ? (workingContext.ptConsts.NEELocalFullSamples)     : (0);
+        const uint distantSamples       = (kUseEnvLights && Bridge::HasEnvMap()) ? (sampleCountMultiplier * workingContext.ptConsts.NEEDistantFullSamples)   : (0);
+        const uint localSamples         = (true)                                 ? (sampleCountMultiplier * workingContext.ptConsts.NEELocalFullSamples)     : (0);
 
         // we must initialize to 0 since we're accumulating multiple samples
         inoutResult.DiffuseRadiance = 0;
         inoutResult.SpecularRadiance = 0;
         inoutResult.RadianceSourceDistance = 0;
+        
+#ifdef ENVMAP_IMPORTANCE_SAMPLING_TYPE
+        const uint envMapISType = ENVMAP_IMPORTANCE_SAMPLING_TYPE;
+#else
+        const uint envMapISType = workingContext.ptConsts.NEEDistantType;
+#endif
         
         const uint totalSamples = distantSamples + localSamples;
         
@@ -459,7 +194,7 @@ namespace PathTracer
         // So instead we do half-MIS here (pending better solutions), where we assume fixed probability on the ReGIR (local lights) side.
         // (It should be noted that this applies to local lights only - the environment map importance sampling method supports getting pdf for arbitrary directions so for
         // distant lights we can use full MIS)
-        const float localPdfEstimateK = 2; // 2-3 is good for basic quality light sampling, ~5 is good when local light sampling quality is high (based on purely empirical data :) )
+        const float localPdfEstimateK = 1.0; // 0.3-3 is good for basic quality light sampling, ~5 is good when local light sampling quality is high (based on purely empirical data :) )
         
         for (int globalIndex = 0; globalIndex < totalSamples; globalIndex++)
         {
@@ -472,7 +207,7 @@ namespace PathTracer
             {
                 // sampleGenerator.startEffect(SampleGeneratorEffectSeed::NextEventEstimationLoc, true, globalIndex, environmentSamples); // for many samples this gives better distribution!
                 sampleWeight = 1.0 / (float)distantSamples;
-                validSample = GenerateEnvMapSample(vertex, sampleGenerator, lightSample);
+                validSample = GenerateEnvMapSample(envMapISType, vertex, sampleGenerator, lightSample);
                 lightMISPdf = lightSample.Pdf;
             } 
             else
@@ -520,7 +255,16 @@ namespace PathTracer
                 // If NEE and MIS are enabled, and we've already sampled the env map, then we need to evaluate the MIS weight here to account for the remaining contribution.
 
                 // Evaluate PDF, had it been generated with light sampling.
-                float lightPdf = Bridge::EnvMap::EvalPdf(scatterInfo.Dir);
+                EnvMapSampler envSampler = Bridge::CreateEnvMapImportanceSampler();
+                float lightPdf;
+                if ( envMapISType == 0 )
+                    lightPdf = envSampler.UniformEvalPdf( scatterInfo.Dir );
+                else if ( envMapISType == 1 )
+                    lightPdf = envSampler.MIPDescentEvalPdf( scatterInfo.Dir );
+                else if ( envMapISType == 2 )
+                    lightPdf = envSampler.PreSampledEvalPdf( scatterInfo.Dir );
+                else
+                    lightPdf = 0;
                 
                 // Compute MIS weight by combining this with BSDF sampling. We early out if scatterInfo.Pdf == 0 (the scatterInfo.IsDelta check)
                 inoutResult.ScatterEnvironmentMISWeight = EvalMIS(1, scatterInfo.Pdf, distantSamples, lightPdf); // distantSamples - accounts for multiple samples!
@@ -548,8 +292,9 @@ namespace PathTracer
         // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
         // TODO: This is for performance reasons, to exclude non-visible samples. Check whether it's actually beneficial in practice (branchiness)
         // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-        const bool flagLightSampledUpper = (lobes & (uint) LobeType::NonDeltaReflection) != 0;
-        const bool flagLightSampledLower = (lobes & (uint) LobeType::NonDeltaTransmission) != 0;
+        //const bool flagLightSampledUpper = (lobes & (uint) LobeType::NonDeltaReflection) != 0;
+        const bool onDominantBranch = preScatterPath.hasFlag(PathFlags::stablePlaneOnDominantBranch);
+        const bool onStablePlane = preScatterPath.hasFlag(PathFlags::stablePlaneOnPlane);
 
         // Check if we should apply NEE.
         const bool applyNEE = (workingContext.ptConsts.NEEEnabled && !optimizationHints.OnlyDeltaLobes) && hasNonDeltaLobes;
@@ -566,7 +311,7 @@ namespace PathTracer
         
         // Check if sample from RTXDI should be applied instead of NEE.
 #if PATH_TRACER_MODE==PATH_TRACER_MODE_FILL_STABLE_PLANES
-        const bool applyReSTIRDI = workingContext.ptConsts.useReSTIRDI && hasNonDeltaLobes && preScatterPath.hasFlag(PathFlags::stablePlaneOnDominantBranch) && preScatterPath.hasFlag(PathFlags::stablePlaneOnPlane);
+        const bool applyReSTIRDI = workingContext.ptConsts.useReSTIRDI && hasNonDeltaLobes && onDominantBranch && onStablePlane;
 #else
         const bool applyReSTIRDI = false;
 #endif
@@ -584,11 +329,7 @@ namespace PathTracer
             return result;
         }
 
-#if 0
-        HandleNEE_FalcorStyle(result, preScatterPath, scatterInfo, flagLightSampledUpper, flagLightSampledLower, shadingData, bsdf, sampleGenerator, workingContext);
-#else
-        HandleNEE_MultipleSamples(result, preScatterPath, scatterInfo, flagLightSampledUpper, flagLightSampledLower, shadingData, bsdf, sampleGenerator, workingContext);
-#endif
+        HandleNEE_MultipleSamples(result, preScatterPath, scatterInfo, shadingData, bsdf, sampleGenerator, workingContext, (onDominantBranch&&onStablePlane)?(workingContext.ptConsts.NEEBoostSamplingOnDominantPlane):(1));
         
         result.DiffuseRadiance  *= Bridge::getNoisyRadianceAttenuation();
         result.SpecularRadiance *= Bridge::getNoisyRadianceAttenuation();

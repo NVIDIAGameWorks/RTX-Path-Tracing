@@ -31,9 +31,7 @@ donut_compile_shaders(
 
 add_executable(${project} WIN32 ${sources})
 
-if(NVRHI_WITH_SHADER_COMPILER)
 add_dependencies(${project} pt_sdk_shaders nrd_shaders omm_sdk_shaders)
-endif()
 
 if(STREAMLINE_INTEGRATION)
 set(SL_DLLS
@@ -50,9 +48,9 @@ add_compile_definitions(STREAMLINE_INTEGRATION)
 add_library(sl.interposer STATIC IMPORTED)
 set_property(TARGET sl.interposer PROPERTY IMPORTED_LOCATION ../../external/Streamline/lib/x64/sl.interposer.lib)
 file(COPY ${SL_DLLS} DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
-target_link_libraries(${project} donut_render donut_app donut_engine NRD rtxdi-sdk omm-sdk omm-sdk-nvrhi sl.interposer)
+target_link_libraries(${project} cxxopts donut_render donut_app donut_engine NRD rtxdi-sdk omm-sdk omm-sdk-nvrhi sl.interposer )
 else()
-target_link_libraries(${project} donut_render donut_app donut_engine NRD rtxdi-sdk omm-sdk omm-sdk-nvrhi)
+target_link_libraries(${project} cxxopts donut_render donut_app donut_engine NRD rtxdi-sdk omm-sdk omm-sdk-nvrhi)
 endif()
 
 set_target_properties(${project} PROPERTIES FOLDER ${folder})

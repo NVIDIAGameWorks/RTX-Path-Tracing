@@ -10,18 +10,20 @@
 
 #pragma once
 
+#include <donut/core/math/math.h>
 #include <donut/engine/Scene.h>
 
 #include <donut/app/imgui_renderer.h>
 #include <donut/app/imgui_console.h>
 
-#include "Lights/EnvironmentMapImportanceSampling.h"
-#include "ToneMapper/ToneMappingPasses.h"
-
-#include "PathTracer/ShaderDebug.hlsli"
 #include "RTXDI/RtxdiPass.h"
 
 #include <donut/render/TemporalAntiAliasingPass.h>
+
+using namespace donut::math;
+
+#include "ToneMapper/ToneMappingPasses.h"
+#include "PathTracer/ShaderDebug.hlsli"
 
 #if ENABLE_DEBUG_DELTA_TREE_VIZUALISATION
 #include "ImNodesEz.h"
@@ -116,6 +118,14 @@ struct AccelerationStructureUIData
     bool                                IsDirty = false;
 };
 
+struct EnvironmentMapRuntimeParameters
+{
+    dm::float3  TintColor = { 1.f, 1.f, 1.f };
+    float       Intensity = 1.f;
+    dm::float3  RotationXYZ = { 0.f, 0.f, 0.f };
+    bool        Enabled = true;
+};
+
 struct SampleUIData
 {
     bool                                ShowUI = true;
@@ -136,12 +146,13 @@ struct SampleUIData
     bool                                UseStablePlanes = false; // only determines whether UseStablePlanes is used in Accumulate mode (for testing correctness and enabling RTXDI) - in Realtime mode or when using RTXDI UseStablePlanes are necessary
     bool                                AllowRTXDIInReferenceMode = false; // allows use of RTXDI even in reference mode
     bool                                UseNEE                      = true;
-    int                                 NEEDistantType              = 0;        // options not exposed to UI for now, just '0' supported; see what's the cost of adding uniform and other types at runtime
+    int                                 NEEDistantType              = 2;        // 0 - uniform; 1 - MIP descent; 2 - pre-sampling, 3 - ...
     int                                 NEEDistantCandidateSamples  = 1;        // each full sample is picked from a number of candidate samples
     int                                 NEEDistantFullSamples       = 2;        // each full sample requires a shadow ray!
     int                                 NEELocalType                = 2;        // '0' is uniform, '1' is power (with pre-sampling), '2' is ReGIR; once this solidifies make it a proper enum
     int                                 NEELocalCandidateSamples    = 4;        // each full sample is picked from a number of candidate samples
     int                                 NEELocalFullSamples         = 2;        // each full sample requires a shadow ray!
+    int                                 NEEBoostSamplingOnDominantPlane = 2;    // Boost light sampling only on the dominant denoising surface
     float                               NEEMinRadianceThresholdMul = 1e-3f;
     bool                                UseReSTIRDI = false;
     bool                                UseReSTIRGI = false;
@@ -174,7 +185,7 @@ struct SampleUIData
 
     bool                                ShowSceneTweakerWindow = false;
 
-    EnvironmentMapImportanceSamplingParameters EnvironmentMapParams;
+    EnvironmentMapRuntimeParameters     EnvironmentMapParams;
 
     bool                                EnableToneMapping = true;
     ToneMappingParameters               ToneMappingParams;
@@ -260,7 +271,7 @@ struct SampleUIData
     float                               NRDDisocclusionThresholdAlternate = 0.1f;
     nrd::RelaxDiffuseSpecularSettings   RelaxSettings;
     nrd::ReblurSettings                 ReblurSettings;
-    
+    //nrd::ReferenceSettings              NRDReferenceSettings;
 };
 
 class SampleUI : public donut::app::ImGui_Renderer

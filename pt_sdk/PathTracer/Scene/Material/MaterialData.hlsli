@@ -13,7 +13,10 @@
 
 #include "../../Config.h"    
 
-#include "MaterialTypes.hlsli"
+// TODO: Replace by bit packing functions
+#define EXTRACT_BITS(bits, offset, value) (((value) >> (offset)) & ((1u << (bits)) - 1u))
+#define PACK_BITS(bits, offset, flags, value) ((((value) & ((1u << (bits)) - 1u)) << (offset)) | ((flags) & (~(((1u << (bits)) - 1u) << (offset)))))
+#define PACK_BITS_UNSAFE(bits, offset, flags, value) (((value) << (offset)) | ((flags) & (~(((1u << (bits)) - 1u) << (offset)))))
 
 /** This is a host/device structure for material header data for all material types (8B).
 */
@@ -50,97 +53,97 @@ struct MaterialHeader
     static const uint kTotalHeaderBitsY = kPSDDominantDeltaLobeP1Offset + kPSDDominantDeltaLobeP1Bits;
 
 
-    /** Set material type.
-    */
-    SETTER_DECL void setMaterialType(MaterialType type) { packedData.x = PACK_BITS(kMaterialTypeBits, kMaterialTypeOffset, packedData.x, (uint)type); }
+    // /** Set material type.
+    // */
+    // void setMaterialType(MaterialType type) { packedData.x = PACK_BITS(kMaterialTypeBits, kMaterialTypeOffset, packedData.x, (uint)type); }
+    // 
+    // /** Get material type.
+    // */
+    // MaterialType getMaterialType() { return (MaterialType)(EXTRACT_BITS(kMaterialTypeBits, kMaterialTypeOffset, packedData.x)); }
 
-    /** Get material type.
-    */
-    MaterialType getMaterialType() CONST_FUNCTION { return (MaterialType)(EXTRACT_BITS(kMaterialTypeBits, kMaterialTypeOffset, packedData.x)); }
-
-    /** Set alpha testing mode.
-    */
-    SETTER_DECL void setAlphaMode(AlphaMode mode) { packedData.y = PACK_BITS(kAlphaModeBits, kAlphaModeOffset, packedData.y, (uint)mode); }
-
-    /** Get material type.
-    */
-    AlphaMode getAlphaMode() CONST_FUNCTION { return (AlphaMode)EXTRACT_BITS(kAlphaModeBits, kAlphaModeOffset, packedData.y); }
+    // /** Set alpha testing mode.
+    // */
+    // void setAlphaMode(AlphaMode mode) { packedData.y = PACK_BITS(kAlphaModeBits, kAlphaModeOffset, packedData.y, (uint)mode); }
+    // 
+    // /** Get material type.
+    // */
+    // AlphaMode getAlphaMode() { return (AlphaMode)EXTRACT_BITS(kAlphaModeBits, kAlphaModeOffset, packedData.y); }
 
     /** Set alpha threshold.
     */
     // native types require "[-HV 2018] -enable-16bit-types -T *s_6_2"
-    // SETTER_DECL void setAlphaThreshold(float16_t alphaThreshold) { packedData.y = PACK_BITS_UNSAFE(kAlphaThresholdBits, kAlphaThresholdOffset, packedData.y, (uint)asuint16(alphaThreshold)); }
-    SETTER_DECL void setAlphaThreshold(float alphaThreshold) { packedData.y = PACK_BITS_UNSAFE(kAlphaThresholdBits, kAlphaThresholdOffset, packedData.y, f32tof16(alphaThreshold)); }
+    // void setAlphaThreshold(float16_t alphaThreshold) { packedData.y = PACK_BITS_UNSAFE(kAlphaThresholdBits, kAlphaThresholdOffset, packedData.y, (uint)asuint16(alphaThreshold)); }
+    void setAlphaThreshold(float alphaThreshold) { packedData.y = PACK_BITS_UNSAFE(kAlphaThresholdBits, kAlphaThresholdOffset, packedData.y, f32tof16(alphaThreshold)); }
 
     /** Get alpha threshold.
     */
-    //float16_t getAlphaThreshold() CONST_FUNCTION { return asfloat16((uint16_t)EXTRACT_BITS(kAlphaThresholdBits, kAlphaThresholdOffset, packedData.y)); }
-    float getAlphaThreshold() CONST_FUNCTION { return f16tof32(EXTRACT_BITS(kAlphaThresholdBits, kAlphaThresholdOffset, packedData.y)); }
+    //float16_t getAlphaThreshold() { return asfloat16((uint16_t)EXTRACT_BITS(kAlphaThresholdBits, kAlphaThresholdOffset, packedData.y)); }
+    float getAlphaThreshold() { return f16tof32(EXTRACT_BITS(kAlphaThresholdBits, kAlphaThresholdOffset, packedData.y)); }
 
     /** Set the nested priority used for nested dielectrics.
     */
-    SETTER_DECL void setNestedPriority(uint32_t priority) { packedData.x = PACK_BITS(kNestedPriorityBits, kNestedPriorityOffset, packedData.x, priority); }
+    void setNestedPriority(uint32_t priority) { packedData.x = PACK_BITS(kNestedPriorityBits, kNestedPriorityOffset, packedData.x, priority); }
 
     /** Get the nested priority used for nested dielectrics.
         \return Nested priority, with 0 reserved for the highest possible priority.
     */
-    uint getNestedPriority() CONST_FUNCTION { return EXTRACT_BITS(kNestedPriorityBits, kNestedPriorityOffset, packedData.x); }
+    uint getNestedPriority() { return EXTRACT_BITS(kNestedPriorityBits, kNestedPriorityOffset, packedData.x); }
 
     /** Set active BxDF lobes.
         \param[in] activeLobes Bit mask of active lobes. See LobeType.
     */
-    SETTER_DECL void setActiveLobes(uint activeLobes) { packedData.x = PACK_BITS(kLobeTypeBits, kLobeTypeOffset, packedData.x, activeLobes); }
+    void setActiveLobes(uint activeLobes) { packedData.x = PACK_BITS(kLobeTypeBits, kLobeTypeOffset, packedData.x, activeLobes); }
 
     /** Get active BxDF lobes.
         \return Bit mask of active lobes. See LobeType.
     */
-    uint getActiveLobes() CONST_FUNCTION { return EXTRACT_BITS(kLobeTypeBits, kLobeTypeOffset, packedData.x); }
+    uint getActiveLobes() { return EXTRACT_BITS(kLobeTypeBits, kLobeTypeOffset, packedData.x); }
 
     // /** Set default texture sampler ID.
     // */
-    // SETTER_DECL void setDefaultTextureSamplerID(uint samplerID) { packedData.y = PACK_BITS(kSamplerIDBits, kSamplerIDOffset, packedData.y, samplerID); }
+    // void setDefaultTextureSamplerID(uint samplerID) { packedData.y = PACK_BITS(kSamplerIDBits, kSamplerIDOffset, packedData.y, samplerID); }
     // 
     // /** Get default texture sampler ID.
     // */
-    // uint getDefaultTextureSamplerID() CONST_FUNCTION { return EXTRACT_BITS(kSamplerIDBits, kSamplerIDOffset, packedData.y); }
+    // uint getDefaultTextureSamplerID() { return EXTRACT_BITS(kSamplerIDBits, kSamplerIDOffset, packedData.y); }
 
-    /** Set double-sided flag.
-    */
-    SETTER_DECL void setDoubleSided(bool doubleSided) { packedData.x = PACK_BITS(1, kDoubleSidedFlagOffset, packedData.x, doubleSided ? 1 : 0); }
-
-    /** Get double-sided flag.
-    */
-    bool isDoubleSided() CONST_FUNCTION { return packedData.x & (1u << kDoubleSidedFlagOffset); }
+    // /** Set double-sided flag.
+    // */
+    // void setDoubleSided(bool doubleSided) { packedData.x = PACK_BITS(1, kDoubleSidedFlagOffset, packedData.x, doubleSided ? 1 : 0); }
+    // 
+    // /** Get double-sided flag.
+    // */
+    // bool isDoubleSided() { return packedData.x & (1u << kDoubleSidedFlagOffset); }
 
     /** Set thin surface flag.
     */
-    SETTER_DECL void setThinSurface(bool thinSurface) { packedData.x = PACK_BITS(1, kThinSurfaceFlagOffset, packedData.x, thinSurface ? 1 : 0); }
+    void setThinSurface(bool thinSurface) { packedData.x = PACK_BITS(1, kThinSurfaceFlagOffset, packedData.x, thinSurface ? 1 : 0); }
 
     /** Get thin surface flag.
     */
-    bool isThinSurface() CONST_FUNCTION { return packedData.x & (1u << kThinSurfaceFlagOffset); }
+    bool isThinSurface() { return packedData.x & (1u << kThinSurfaceFlagOffset); }
 
     /** Set emissive flag.
     */
-    SETTER_DECL void setEmissive(bool isEmissive) { packedData.x = PACK_BITS(1, kEmissiveFlagOffset, packedData.x, isEmissive ? 1 : 0); }
+    void setEmissive(bool isEmissive) { packedData.x = PACK_BITS(1, kEmissiveFlagOffset, packedData.x, isEmissive ? 1 : 0); }
 
     /** Get emissive flag.
     */
-    bool isEmissive() CONST_FUNCTION { return packedData.x & (1u << kEmissiveFlagOffset); }
+    bool isEmissive() { return packedData.x & (1u << kEmissiveFlagOffset); }
 
-    /** Set basic material flag. This flag is an optimization to allow quick type checking.
-    */
-    SETTER_DECL void setIsBasicMaterial(bool isBasicMaterial) { packedData.x = PACK_BITS(1, kIsBasicMaterialFlagOffset, packedData.x, isBasicMaterial ? 1 : 0); }
-
-    /** Get basic material flag. This flag is an optimization to allow quick type checking.
-    */
-    bool isBasicMaterial() CONST_FUNCTION { return packedData.x & (1u << kIsBasicMaterialFlagOffset); }
+    // /** Set basic material flag. This flag is an optimization to allow quick type checking.
+    // */
+    // void setIsBasicMaterial(bool isBasicMaterial) { packedData.x = PACK_BITS(1, kIsBasicMaterialFlagOffset, packedData.x, isBasicMaterial ? 1 : 0); }
+    // 
+    // /** Get basic material flag. This flag is an optimization to allow quick type checking.
+    // */
+    // bool isBasicMaterial() { return packedData.x & (1u << kIsBasicMaterialFlagOffset); }
 
     void setPSDExclude(bool psdExclude) { packedData.y = PACK_BITS(1, kPSDExcludeFlagOffset, packedData.y, psdExclude ? 1 : 0); }
-    bool isPSDExclude() CONST_FUNCTION  { return packedData.y & (1u << kPSDExcludeFlagOffset); }
+    bool isPSDExclude()  { return packedData.y & (1u << kPSDExcludeFlagOffset); }
 
     void setPSDDominantDeltaLobeP1(uint psdDominantDeltaLobeP1) { packedData.y = PACK_BITS(kPSDDominantDeltaLobeP1Bits, kPSDDominantDeltaLobeP1Offset, packedData.y, (uint)psdDominantDeltaLobeP1); }
-    uint getPSDDominantDeltaLobeP1() CONST_FUNCTION             { return EXTRACT_BITS(kPSDDominantDeltaLobeP1Bits, kPSDDominantDeltaLobeP1Offset, packedData.y); }
+    uint getPSDDominantDeltaLobeP1()             { return EXTRACT_BITS(kPSDDominantDeltaLobeP1Bits, kPSDDominantDeltaLobeP1Offset, packedData.y); }
 
 #ifdef HOST_CODE
     friend bool operator==(const MaterialHeader& lhs, const MaterialHeader& rhs);

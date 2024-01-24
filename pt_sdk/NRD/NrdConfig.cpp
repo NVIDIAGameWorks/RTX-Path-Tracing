@@ -33,6 +33,12 @@ namespace NrdConfig {
         settings.diffuseMaxAccumulatedFrameNum = 50;
         settings.specularMaxAccumulatedFrameNum = 50;
 
+        settings.antilagSettings.accelerationAmount = 0.95f;
+        settings.antilagSettings.spatialSigmaScale = 0.85f;
+        settings.antilagSettings.temporalSigmaScale = 0.15f;
+        settings.antilagSettings.resetAmount = 0.95f;
+
+
         return settings;
     }
 

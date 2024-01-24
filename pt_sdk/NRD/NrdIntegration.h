@@ -66,6 +66,7 @@ public:
         float disocclusionThreshold,
         float disocclusionThresholdAlternate,
         bool useDisocclusionThresholdAlternateMix,
+        float timeDeltaBetweenFrames, // < 0 to track internally in NRD
         bool enableValidation,
         const void* methodSettings);
 

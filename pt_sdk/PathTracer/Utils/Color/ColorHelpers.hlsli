@@ -13,8 +13,6 @@
 
 #include "../../Config.h"    
 
-BEGIN_NAMESPACE_FALCOR
-
 /** This file contains host/device shared color utility functions.
 */
 
@@ -288,7 +286,5 @@ inline float3 linearRGBToYCxCz(float3 lColor)
 {
     return XYZToYCxCz(linearRGBToXYZ(lColor));
 }
-
-END_NAMESPACE_FALCOR
 
 #endif // __COLOR_HELPERS_HLSLI__

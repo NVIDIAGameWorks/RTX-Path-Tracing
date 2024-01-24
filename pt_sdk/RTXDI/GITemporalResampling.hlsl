@@ -19,30 +19,28 @@
 #endif
 
 #include "../RTXDI/RtxdiApplicationBridge.hlsli"
-
-#include "../../external/RTXDI/rtxdi-sdk/include/rtxdi/GIResamplingFunctions.hlsli"
+#include <rtxdi/GIResamplingFunctions.hlsli>
 
 [numthreads(RTXDI_SCREEN_SPACE_GROUP_SIZE, RTXDI_SCREEN_SPACE_GROUP_SIZE, 1)]
 void main(uint2 GlobalIndex : SV_DispatchThreadID, uint2 LocalIndex : SV_GroupThreadID, uint2 GroupIdx : SV_GroupID)
 {
-    const RTXDI_ResamplingRuntimeParameters runtimeParams = g_RtxdiBridgeConst.runtimeParams;
+    uint2 pixelPosition = RTXDI_ReservoirPosToPixelPos(GlobalIndex, g_RtxdiBridgeConst.runtimeParams.activeCheckerboardField);
 
-    uint2 pixelPosition = RTXDI_ReservoirPosToPixelPos(GlobalIndex, runtimeParams);
-
-    RAB_Surface currentSurface = RAB_GetGBufferSurface(pixelPosition, false);
+    RAB_Surface surface = RAB_GetGBufferSurface(pixelPosition, false);
 
     RTXDI_GIReservoir resultReservoir = RTXDI_EmptyGIReservoir();
     
-    if (RAB_IsSurfaceValid(currentSurface))
+    if (RAB_IsSurfaceValid(surface))
     {
+        // Create GI reservoir from the position and orientation of the first secondary vertex from the Path Tracer
         const float4 secondaryPositionNormal = u_SecondarySurfacePositionNormal[pixelPosition];
-        RTXDI_GIReservoir initialSample = RTXDI_MakeGIReservoir(
+        RTXDI_GIReservoir initialReservoir = RTXDI_MakeGIReservoir(
             secondaryPositionNormal.xyz,
             octToNdirUnorm32(asuint(secondaryPositionNormal.w)),
             u_SecondarySurfaceRadiance[pixelPosition].xyz,
             /* samplePdf = */ 1.0);
         
-        if (g_RtxdiBridgeConst.reStirGI.enableTemporalResampling)
+        if (g_RtxdiBridgeConst.reStirGIEnableTemporalResampling)
         {
             RAB_RandomSamplerState rng = RAB_InitRandomSampler(pixelPosition, 5);
 
@@ -52,20 +50,30 @@ void main(uint2 GlobalIndex : SV_DispatchThreadID, uint2 LocalIndex : SV_GroupTh
 
             RTXDI_GITemporalResamplingParameters tparams;
             tparams.screenSpaceMotion = motionVector;
-            tparams.sourceBufferIndex = g_RtxdiBridgeConst.reStirGI.temporalInputBufferIndex;
-            tparams.maxHistoryLength = g_RtxdiBridgeConst.reStirGI.maxHistoryLength;
-            tparams.maxReservoirAge = g_RtxdiBridgeConst.reStirGI.maxReservoirAge;
-            tparams.depthThreshold = g_RtxdiBridgeConst.reStirGI.temporalDepthThreshold;
-            tparams.normalThreshold = g_RtxdiBridgeConst.reStirGI.temporalNormalThreshold;
-            tparams.enablePermutationSampling = g_RtxdiBridgeConst.reStirGI.enablePermutationSampling;
-            tparams.enableFallbackSampling = g_RtxdiBridgeConst.reStirGI.enableFallbackSampling;
-            
-            resultReservoir = RTXDI_GITemporalResampling(pixelPosition, currentSurface, initialSample,
-                rng, tparams, runtimeParams);
+            tparams.sourceBufferIndex = g_RtxdiBridgeConst.restirGI.bufferIndices.temporalResamplingInputBufferIndex;
+            tparams.maxHistoryLength = g_RtxdiBridgeConst.restirGI.temporalResamplingParams.maxHistoryLength;
+            tparams.depthThreshold = g_RtxdiBridgeConst.restirGI.temporalResamplingParams.depthThreshold;
+            tparams.normalThreshold = g_RtxdiBridgeConst.restirGI.temporalResamplingParams.normalThreshold;
+            tparams.enablePermutationSampling = g_RtxdiBridgeConst.restirGI.temporalResamplingParams.enablePermutationSampling;
+            tparams.enableFallbackSampling = g_RtxdiBridgeConst.restirGI.temporalResamplingParams.enableFallbackSampling;
+            tparams.uniformRandomNumber = g_RtxdiBridgeConst.restirGI.temporalResamplingParams.uniformRandomNumber;
+            tparams.maxReservoirAge = g_RtxdiBridgeConst.restirGI.temporalResamplingParams.maxReservoirAge;
+            // Max age threshold should vary.
+            if (g_RtxdiBridgeConst.reStirGIVaryAgeThreshold)    
+                tparams.maxReservoirAge *= (0.5 + RAB_GetNextRandom(rng) * 0.5);
+
+            resultReservoir = RTXDI_GITemporalResampling(
+                pixelPosition, 
+                surface, 
+                initialReservoir,
+                rng, 
+                g_RtxdiBridgeConst.runtimeParams,
+                g_RtxdiBridgeConst.restirGI.reservoirBufferParams,
+                tparams);
         }
         else
         {
-            resultReservoir = initialSample;
+            resultReservoir = initialReservoir;
         }
     }
 
@@ -85,12 +93,18 @@ void main(uint2 GlobalIndex : SV_DispatchThreadID, uint2 LocalIndex : SV_GroupTh
     }
 
 #ifdef RTXDI_ENABLE_BOILING_FILTER
-    if  (g_RtxdiBridgeConst.reStirGI.boilingFilterStrength > 0)
+    if  (g_RtxdiBridgeConst.restirGI.temporalResamplingParams.enableBoilingFilter > 0)
     {
-        RTXDI_GIBoilingFilter(LocalIndex, g_RtxdiBridgeConst.reStirGI.boilingFilterStrength, runtimeParams, resultReservoir);
+        RTXDI_GIBoilingFilter(
+            LocalIndex, 
+            g_RtxdiBridgeConst.restirGI.temporalResamplingParams.boilingFilterStrength, 
+            resultReservoir);
     }
 #endif
 
-    RTXDI_StoreGIReservoir(resultReservoir, runtimeParams, pixelPosition,
-        g_RtxdiBridgeConst.reStirGI.temporalOutputBufferIndex);
+    RTXDI_StoreGIReservoir(
+        resultReservoir,
+        g_RtxdiBridgeConst.restirGI.reservoirBufferParams,
+        GlobalIndex,
+        g_RtxdiBridgeConst.restirGI.bufferIndices.temporalResamplingOutputBufferIndex);
 }

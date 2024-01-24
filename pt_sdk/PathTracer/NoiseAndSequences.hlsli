@@ -11,6 +11,8 @@
 #ifndef __NOISE_AND_SEQUENCES_HLSLI__ // using instead of "#pragma once" due to https://github.com/microsoft/DirectXShaderCompiler/issues/3943
 #define __NOISE_AND_SEQUENCES_HLSLI__
 
+#include "Utils.hlsli"
+
 // must be power of 2! when using precomputed sobol, integration quality slowly deteriorates when sampling more than precomputed number, such that at 64 times the precomputed size it can drop below using pure pseudorandom
 #define SOBOL_MAX_DIMENSIONS                                        5
 #define SOBOL_PRECOMPUTED_INDEX_COUNT                               65536
@@ -50,59 +52,6 @@
 // Quasi-random sequence based on "Practical Hash-based Owen Scrambling", Brent Burley 2020, https://jcgt.org/published/0009/04/01/paper.pdf
 // with shader implementation borrowing from Andrew Helmer's Shadertoy implementation (https://www.reddit.com/r/GraphicsProgramming/comments/l1go2r/owenscrambled_sobol_02_sequences_shadertoy/)
 // *************************************************************************************************************************************
-
-// Note: this will turn 0 into 0! if that's a problem do Hash32( x+constant ) - HashCombine does something similar already
-uint Hash32( uint x )
-{
-// This little gem is from https://nullprogram.com/blog/2018/07/31/, "Prospecting for Hash Functions" by Chris Wellons
-// There's also the inverse for the lowbias32, and a 64bit version.
-#if 1   // faster, higher bias
-    // exact bias: 0.17353355999581582
-    // uint32_t lowbias32(uint32_t x)
-    // {
-        x ^= x >> 16;
-        x *= 0x7feb352du;
-        x ^= x >> 15;
-        x *= 0x846ca68bu;
-        x ^= x >> 16;
-        return x;
-    //}
-#else // slower, lower bias
-// exact bias: 0.020888578919738908
-// uint32_t triple32(uint32_t x)
-// {
-    x ^= x >> 17;
-    x *= uint(0xed5ad4bb);
-    x ^= x >> 11;
-    x *= uint(0xac4c1b51);
-    x ^= x >> 15;
-    x *= uint(0x31848bab);
-    x ^= x >> 14;
-    return x;
-//}
-#endif
-}
-
-// popular hash_combine (boost, etc.)
-uint Hash32Combine( const uint seed, const uint value )
-{
-    return seed ^ (Hash32(value) + 0x9e3779b9 + (seed << 6) + (seed >> 2));       
-}
-
-// same as Hash32Combine, just without re-hashing of input value
-uint Hash32CombineSimple( const uint seed, const uint value )
-{
-    return seed ^ (value + (seed << 6) + (seed >> 2));
-}
-
-// converting the whole 32bit uint to [0, 1)
-float Hash32ToFloat(uint hash)
-{ 
-    // there are good reasons to do it this way:
-    // a.) converting the upper 24bits to [0, 1) because the higher bits have better distribution in some hash algorithms (like sobol)
-    // b.) this is the only way to guarantee [0, 1) since float32 mantissa is only 23 bits (and I might be off by a bit here, maybe we need "(hash>>9) / 8388608.0" but I brute-force-tested it and below seems to work
-    return (hash>>8) / 16777216.0;
-}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Quasi-random sequence - R*

@@ -17,8 +17,7 @@
 #endif
 
 #include "RtxdiApplicationBridge.hlsli"
-
-#include "../../external/RTXDI/rtxdi-sdk/include/rtxdi/ResamplingFunctions.hlsli"
+#include <rtxdi/DIResamplingFunctions.hlsli>
 
 #if USE_RAY_QUERY
 [numthreads(RTXDI_SCREEN_SPACE_GROUP_SIZE, RTXDI_SCREEN_SPACE_GROUP_SIZE, 1)] 
@@ -32,56 +31,83 @@ void RayGen()
     uint2 GlobalIndex = DispatchRaysIndex().xy;
 #endif
 
-    const RTXDI_ResamplingRuntimeParameters runtimeParams = g_RtxdiBridgeConst.runtimeParams;
-
-    uint2 pixelPosition = RTXDI_ReservoirPosToPixelPos(GlobalIndex, runtimeParams);
+    uint2 pixelPosition = RTXDI_ReservoirPosToPixelPos(GlobalIndex, g_RtxdiBridgeConst.runtimeParams.activeCheckerboardField);
 
     RAB_RandomSamplerState rng = RAB_InitRandomSampler(pixelPosition, 2);
 
     RAB_Surface surface = RAB_GetGBufferSurface(pixelPosition, false);
 
-    //Adds a small random offet to the motion vector. Do we need this? 
+    //Adds a small random offet to the motion vector
     // We current do not have a method to check for complex surfaces 
-    //bool usePermutationSampling = false;
-    //if (g_ResamplingConst.enablePermutationSampling)
-    //{
-    //    // Permutation sampling makes more noise on thin, high-detail objects.
-    //    usePermutationSampling = !IsComplexSurface(pixelPosition, surface);
-    //}
+   bool usePermutationSampling = false;
+   //if (g_ResamplingConst.enablePermutationSampling)
+   //{
+   //    // Permutation sampling makes more noise on thin, high-detail objects.
+   //    usePermutationSampling = !IsComplexSurface(pixelPosition, surface);
+   //}
 
-    RTXDI_Reservoir temporalResult = RTXDI_EmptyReservoir();
+    RTXDI_DIReservoir temporalReservoir = RTXDI_EmptyDIReservoir();
     int2 temporalSamplePixelPos = -1;
-    RAB_LightSample selectedLightSample = (RAB_LightSample)0;
+    RAB_LightSample lightSample = (RAB_LightSample)0;
 
     if (RAB_IsSurfaceValid(surface))
     {
-        RTXDI_Reservoir curSample = RTXDI_LoadReservoir(runtimeParams,
-            GlobalIndex, g_RtxdiBridgeConst.reStirDI.initialOutputBufferIndex);
+        RTXDI_DIReservoir currentSample = RTXDI_LoadDIReservoir(
+            g_RtxdiBridgeConst.restirDI.reservoirBufferParams,
+            GlobalIndex, 
+            g_RtxdiBridgeConst.restirDI.bufferIndices.initialSamplingOutputBufferIndex);
 
         float3 motionVector = u_MotionVectors[pixelPosition].xyz;
-
         motionVector = convertMotionVectorToPixelSpace(g_Const.view, g_Const.previousView, pixelPosition, motionVector);
 
-        RTXDI_TemporalResamplingParameters tparams;
+        RTXDI_DITemporalResamplingParameters tparams;
         tparams.screenSpaceMotion = motionVector;
-        tparams.sourceBufferIndex = g_RtxdiBridgeConst.reStirDI.temporalInputBufferIndex;
-        tparams.maxHistoryLength = g_RtxdiBridgeConst.reStirDI.maxHistoryLength;
-        tparams.biasCorrectionMode = g_RtxdiBridgeConst.reStirDI.temporalBiasCorrection;
-        tparams.depthThreshold = g_RtxdiBridgeConst.reStirDI.temporalDepthThreshold;
-        tparams.normalThreshold = g_RtxdiBridgeConst.reStirDI.temporalNormalThreshold;
-        tparams.enableVisibilityShortcut = g_RtxdiBridgeConst.reStirDI.discardInvisibleSamples;
-        tparams.enablePermutationSampling = g_RtxdiBridgeConst.reStirDI.enablePermutationSampling;
+        tparams.sourceBufferIndex = g_RtxdiBridgeConst.restirDI.bufferIndices.temporalResamplingInputBufferIndex;
+        tparams.maxHistoryLength = g_RtxdiBridgeConst.restirDI.temporalResamplingParams.maxHistoryLength;
+        tparams.biasCorrectionMode = g_RtxdiBridgeConst.restirDI.temporalResamplingParams.temporalBiasCorrection;
+        tparams.depthThreshold = g_RtxdiBridgeConst.restirDI.temporalResamplingParams.temporalDepthThreshold;
+        tparams.normalThreshold = g_RtxdiBridgeConst.restirDI.temporalResamplingParams.temporalNormalThreshold;
+        tparams.enableVisibilityShortcut = g_RtxdiBridgeConst.restirDI.temporalResamplingParams.discardInvisibleSamples;
+        tparams.enablePermutationSampling = usePermutationSampling;
+        tparams.uniformRandomNumber = g_RtxdiBridgeConst.restirDI.temporalResamplingParams.uniformRandomNumber;
         
-        temporalResult = RTXDI_TemporalResampling(pixelPosition, surface, curSample,
-            rng, tparams, runtimeParams, temporalSamplePixelPos, selectedLightSample);
+        temporalReservoir = RTXDI_DITemporalResampling(
+            pixelPosition,
+            surface,
+            currentSample,
+            rng,
+            g_RtxdiBridgeConst.runtimeParams,
+            g_RtxdiBridgeConst.restirDI.reservoirBufferParams,
+            tparams,
+            temporalSamplePixelPos,
+            lightSample);
     }
 
 #ifdef RTXDI_ENABLE_BOILING_FILTER
-    if  (g_RtxdiBridgeConst.reStirDI.boilingFilterStrength > 0)
+    if (g_RtxdiBridgeConst.restirDI.temporalResamplingParams.enableBoilingFilter)
     {
-        RTXDI_BoilingFilter(LocalIndex, g_RtxdiBridgeConst.reStirDI.boilingFilterStrength, runtimeParams, temporalResult);
+        RTXDI_BoilingFilter(LocalIndex, g_RtxdiBridgeConst.restirDI.temporalResamplingParams.boilingFilterStrength, temporalReservoir);
     }
 #endif
     
-    RTXDI_StoreReservoir(temporalResult, runtimeParams, GlobalIndex, g_RtxdiBridgeConst.reStirDI.temporalOutputBufferIndex);
+    RTXDI_StoreDIReservoir(temporalReservoir, g_RtxdiBridgeConst.restirDI.reservoirBufferParams, GlobalIndex, g_RtxdiBridgeConst.restirDI.bufferIndices.temporalResamplingOutputBufferIndex);
+
+    // useful for debugging!
+    DebugContext debug;
+    debug.Init(pixelPosition, g_Const.debug, u_FeedbackBuffer, u_DebugLinesBuffer, u_DebugDeltaPathTree, u_DeltaPathSearchStack, u_DebugVizOutput);
+
+    switch (g_Const.debug.debugViewType)
+    {
+    case (int)DebugViewType::ReSTIRDITemporalOutput:
+
+        // Load the light stored in reservoir and sample it
+        uint lightIdx = RTXDI_GetDIReservoirLightIndex(temporalReservoir);
+        float2 lightUV = RTXDI_GetDIReservoirSampleUV(temporalReservoir);
+        RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIdx, false);
+        lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, lightUV);
+        
+        float3 Li = lightSample.radiance * RTXDI_GetDIReservoirInvPdf(temporalReservoir) / lightSample.solidAnglePdf;
+        debug.DrawDebugViz(pixelPosition, float4(Li, 1));
+        break;
+    }
 }

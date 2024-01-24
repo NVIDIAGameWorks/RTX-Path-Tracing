@@ -17,10 +17,6 @@
 // ********************************************************************************************************************************************
 // ********************************************************************************************************************************************
 
-#if !defined(__cplusplus) // not needed in the port so far
-#include "Utils/HostDeviceShared.hlsli"
-#endif
-
 #define MAX_BOUNCE_COUNT                        96      // max value that SampleUIData::BounceCount can be set to - technically max value should be 255 with existing bounce counters
 
 // In Falcor these macros get programmatically defined in Scene.cpp, getSceneDefines
@@ -92,5 +88,7 @@ uint    PathIDFromPixel( uint2 pixel )  { return pixel.x << 16 | pixel.y; }
 #define  USE_PRECOMPUTED_SOBOL_BUFFER       0               // see NoiseAndSequences.hlsli - still experimental, faster but lower quality and more RAM - not a clear win
 
 #define  EXPERIMENTAL_SUPERSAMPLE_LOOP_IN_SHADER    0       // note: this is not fully compatible with environment map presampling (ENVMAP_IMPORTANCE_SAMPLING_TYPE==1) because normally this relies on presampling before each pass
+
+// #define  ENVMAP_IMPORTANCE_SAMPLING_TYPE    2            // 0 - uniform; 1 - MIP descent; 2 - pre-sampling, 3 - ... <- if not defined here then PT uses workingContext.ptConsts.NEEDistantType (dynamic - perf cost)!
 
 #endif // __CONFIG_H__

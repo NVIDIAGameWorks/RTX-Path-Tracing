@@ -32,8 +32,10 @@ float GetMISWeight(float3 roughBrdf, float3 trueBrdf)
 
 bool ReSTIRGIFinalContribution(const uint2 pixelPosition, const RAB_Surface surface, out float3 diffuseContribution, out float3 specularContribution, out float hitDistance)
 {
-    RTXDI_GIReservoir finalReservoir = RTXDI_LoadGIReservoir(g_RtxdiBridgeConst.runtimeParams, pixelPosition, 
-        g_RtxdiBridgeConst.reStirGI.finalShadingReservoir);
+    RTXDI_GIReservoir finalReservoir = RTXDI_LoadGIReservoir(
+        g_RtxdiBridgeConst.restirGI.reservoirBufferParams,
+        pixelPosition, 
+        g_RtxdiBridgeConst.restirGI.bufferIndices.finalShadingInputBufferIndex);
 
     diffuseContribution = 0.0.xxx;
     specularContribution = 0.0.xxx;
@@ -57,7 +59,7 @@ bool ReSTIRGIFinalContribution(const uint2 pixelPosition, const RAB_Surface surf
 
     float3 finalRadiance = finalReservoir.radiance * finalReservoir.weightSum;
 
-    if (g_RtxdiBridgeConst.reStirGI.enableFinalVisibility)
+    if (g_RtxdiBridgeConst.restirGI.finalShadingParams.enableFinalVisibility)
     {
         // TODO: support partial visibility... if that is applicable with this material model.
         const RayDesc ray = setupVisibilityRay(surface, finalReservoir.position, g_RtxdiBridgeConst.rayEpsilon);
@@ -74,7 +76,7 @@ bool ReSTIRGIFinalContribution(const uint2 pixelPosition, const RAB_Surface surf
     diffuseContribution = 0; 
     specularContribution = 0;
 
-    if (g_RtxdiBridgeConst.reStirGI.enableFinalMIS)
+    if (g_RtxdiBridgeConst.restirGI.finalShadingParams.enableFinalMIS)
     {
         float3 L0 = initialReservoir.position - surface.GetPosW();
         float hitDistance0 = length(L0);
@@ -138,8 +140,7 @@ bool ReSTIRGIFinalContribution(const uint2 pixelPosition, const RAB_Surface surf
 [numthreads(RTXDI_SCREEN_SPACE_GROUP_SIZE, RTXDI_SCREEN_SPACE_GROUP_SIZE, 1)]
 void main(uint2 GlobalIndex : SV_DispatchThreadID, uint2 LocalIndex : SV_GroupThreadID, uint2 GroupIdx : SV_GroupID)
 {
-    const uint2 reservoirPos = GlobalIndex.xy;
-    uint2 pixelPosition = RTXDI_ReservoirPosToPixelPos(GlobalIndex, g_RtxdiBridgeConst.runtimeParams);
+   const uint2 pixelPosition = RTXDI_ReservoirPosToPixelPos(GlobalIndex, g_RtxdiBridgeConst.runtimeParams.activeCheckerboardField);
 
     RAB_Surface surface = RAB_GetGBufferSurface(pixelPosition, false);
 

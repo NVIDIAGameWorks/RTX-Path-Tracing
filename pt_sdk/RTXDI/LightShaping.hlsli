@@ -33,6 +33,7 @@ LightShaping unpackLightShaping(PolymorphicLightInfo lightInfo)
 
 float evaluateIesProfile(int profileIndex, float3 emissionDirection_, float3 lightPrimaryAxis)
 {
+#if 0   // currently disabled until we implement scene side code and find a scene with appropriate test cases 
     if (profileIndex < 0)
         return 1.0;
 
@@ -57,6 +58,9 @@ float evaluateIesProfile(int profileIndex, float3 emissionDirection_, float3 lig
     float iesMultiplier = iesProfileTexture.SampleLevel(IES_SAMPLER, float2(normAngle, normTangentAngle), 0).x;
 
     return iesMultiplier;
+#else
+    return 1.0;
+#endif
 }
 
 float3 evaluateLightShaping(LightShaping shaping, float3 surfacePosition, float3 lightSamplePosition)

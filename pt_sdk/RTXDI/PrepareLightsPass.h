@@ -12,10 +12,11 @@
 
 #include <donut/engine/SceneGraph.h>
 #include <nvrhi/nvrhi.h>
-#include <rtxdi/RTXDI.h>
+#include <rtxdi/ReSTIRDI.h>
 #include <memory>
 #include <unordered_map>
 
+#include "../PathTracer/Lighting/Types.h"
 
 namespace donut::engine
 {
@@ -28,7 +29,7 @@ namespace donut::engine
 
 class RenderTargets;
 class RtxdiResources;
-class EnvironmentMap;
+class EnvMapBaker;
 
 class PrepareLightsPass
 {
@@ -47,7 +48,10 @@ private:
     nvrhi::BufferHandle m_GeometryInstanceToLightBuffer;
     nvrhi::TextureHandle m_LocalLightPdfTexture;
 
-    std::shared_ptr<EnvironmentMap> m_EnvironmentMap;
+    std::shared_ptr<EnvMapBaker> m_EnvironmentMap;
+    EnvMapSceneParams m_EnvironmentMapSceneParams;
+
+    nvrhi::BufferHandle m_ConstantBuffer;
 
     uint32_t m_MaxLightsInBuffer;
     bool m_OddFrame = false;
@@ -67,15 +71,12 @@ public:
         std::shared_ptr<donut::engine::ExtendedScene> scene,
         nvrhi::IBindingLayout* bindlessLayout);
 
-    void SetScene(std::shared_ptr<donut::engine::ExtendedScene> scene, std::shared_ptr<EnvironmentMap> environmentMap = nullptr);
+    void SetScene(std::shared_ptr<donut::engine::ExtendedScene> scene, std::shared_ptr<EnvMapBaker> environmentMap = nullptr, EnvMapSceneParams envMapSceneParams = {} );
     void CreatePipeline();
     void CreateBindingSet(RtxdiResources& resources, const RenderTargets& renderTargets);
     void CountLightsInScene(uint32_t& numEmissiveMeshes, uint32_t& numEmissiveTriangles);
     
-    void Process(
-        nvrhi::ICommandList* commandList, 
-        const rtxdi::Context& context, 
-        rtxdi::FrameParameters& outFrameParameters);
+    RTXDI_LightBufferParameters Process(nvrhi::ICommandList* commandList);
 
-    nvrhi::TextureHandle GetEnvironmentMap();
+    nvrhi::TextureHandle GetEnvironmentMapTexture();
 };

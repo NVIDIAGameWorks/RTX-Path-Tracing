@@ -242,6 +242,7 @@ void MaterialPatch::Load(const Json::Value& node)
     node["psdExclude"] >> psdExclude;
     node["psdDominantDeltaLobe"] >> psdDominantDeltaLobe;
     node["emissiveIntensity"] >> emissiveIntensity;
+    node["shadowNoLFadeout"] >> shadowNoLFadeout;
     
     SceneGraphLeaf::Load(node);
 }
@@ -277,6 +278,7 @@ void MaterialPatch::Patch(Material& mat)
     MAT_VALUE_OR(psdExclude);
     MAT_VALUE_OR(psdDominantDeltaLobe);
     MAT_VALUE_OR(emissiveIntensity);
+    MAT_VALUE_OR(shadowNoLFadeout);
 }
 
 std::shared_ptr<SceneGraphLeaf> SampleSettings::Clone()

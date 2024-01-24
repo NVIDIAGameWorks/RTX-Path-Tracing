@@ -13,9 +13,9 @@
 
 #include "../Config.h"    
 
-#include "../Utils/Geometry/GeometryHelpers.hlsli"
-
 #include "../Scene/Material/MaterialData.hlsli"
+
+#include "../PathTracerHelpers.hlsli"
 
 // import Rendering.Materials.IBxDF;
 // import Scene.Material.MaterialData;
@@ -48,6 +48,7 @@ struct ShadingData
     float   normalCurvature;        ///< Normal curvature.
 #endif
     float3  faceN;                  ///< Face normal in world space, always on the front-facing side.
+    float3  vertexN;                ///< Interpolated vertex normal, corrected for front-facing flag but not corrected for the ray view direction.
     bool    frontFacing;            ///< True if primitive seen from the front-facing side.
     float   curveRadius;            ///< Curve cross-sectional radius. Valid only for geometry generated from curves.
 
@@ -56,6 +57,7 @@ struct ShadingData
     uint    materialID;             ///< Material ID at shading location.    
     float   opacity;                ///< Opacity value in [0,1]. This is used for alpha testing.
     float   IoR;                    ///< Index of refraction for the medium on the front-facing side (i.e. "outside" the material at the hit).
+    float   shadowNoLFadeout;       ///< See corresponding material setting.
 
     static ShadingData make()
     {
@@ -70,6 +72,7 @@ struct ShadingData
         shadingData.ormalCurvature  = 0;
     #endif
         shadingData.faceN = 0;
+        shadingData.vertexN = 0;
         shadingData.frontFacing = 0;
         shadingData.curveRadius = 0;
 
@@ -77,6 +80,7 @@ struct ShadingData
         shadingData.materialID = 0;
         shadingData.opacity = 0;
         shadingData.IoR = 0;
+        shadingData.shadowNoLFadeout = 0;
         return shadingData;
     }
 
@@ -90,7 +94,7 @@ struct ShadingData
     */
     float3 computeNewRayOrigin(bool viewside = true)
     {
-        return computeRayOrigin(posW, (frontFacing == viewside) ? faceN : -faceN);
+        return ComputeRayOrigin(posW, (frontFacing == viewside) ? faceN : -faceN);
     }
 
     /** Transform vector from the local surface frame to world space.
@@ -111,6 +115,14 @@ struct ShadingData
     {
         return float3(dot(v, T), dot(v, B), dot(v, N));
         //return mul( float3x3(T,B,N), v );
+    }
+
+    /** Returns the oriented face normal.
+        \return Face normal flipped to the same side as the view vector.
+    */
+    float3 getOrientedFaceNormal()
+    {
+        return frontFacing ? faceN : -faceN;
     }
 };
 

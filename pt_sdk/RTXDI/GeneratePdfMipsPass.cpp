@@ -31,16 +31,24 @@ GenerateMipsPass::GenerateMipsPass(
 
     const auto& destinationDesc = m_DestinationTexture->getDesc();
 
+    nvrhi::SamplerDesc samplerDesc;
+    samplerDesc.setBorderColor(nvrhi::Color(0.f));
+    samplerDesc.setAllFilters(true);
+    samplerDesc.setMipFilter(true);
+    samplerDesc.setAllAddressModes(nvrhi::SamplerAddressMode::Wrap);
+    m_LinearSampler = device->createSampler(samplerDesc);
+
     nvrhi::BindingSetDesc bindingSetDesc;
     bindingSetDesc.bindings = {
-        nvrhi::BindingSetItem::PushConstants(0, sizeof(PreprocessEnvironmentMapConstants))
+        nvrhi::BindingSetItem::PushConstants(0, sizeof(PreprocessEnvironmentMapConstants)),
+        nvrhi::BindingSetItem::Sampler(0, m_LinearSampler)
     };
 
     if (sourceEnvironmentMap) 
     {
         bindingSetDesc.bindings.push_back(nvrhi::BindingSetItem::Texture_SRV(0, sourceEnvironmentMap));
     };
-    
+
     for (uint32_t mipLevel = 0; mipLevel < destinationDesc.mipLevels; mipLevel++)
     {
         bindingSetDesc.bindings.push_back(nvrhi::BindingSetItem::Texture_UAV(

@@ -36,19 +36,18 @@ between the bridge functions.
 
 #include "ShaderParameters.h"
 #include "SurfaceData.hlsli"
-#include "../PathTracerBridgeDonut.hlsli"
 #include "../ShaderResourceBindings.hlsli"
+#include "../PathTracerBridgeDonut.hlsli"
 
 // RTXDI resources
 StructuredBuffer<PolymorphicLightInfo> t_LightDataBuffer    : register(t21 VK_DESCRIPTOR_SET(2));
 Buffer<float2> t_NeighborOffsets                            : register(t22 VK_DESCRIPTOR_SET(2));
 Buffer<uint> t_LightIndexMappingBuffer                      : register(t23 VK_DESCRIPTOR_SET(2));
-Texture2D t_EnvironmentPdfTexture                           : register(t24 VK_DESCRIPTOR_SET(2));
 Texture2D t_LocalLightPdfTexture                            : register(t25 VK_DESCRIPTOR_SET(2));
 StructuredBuffer<uint> t_GeometryInstanceToLight            : register(t26 VK_DESCRIPTOR_SET(2));
 
 // Screen-sized UAVs
-RWStructuredBuffer<RTXDI_PackedReservoir> u_LightReservoirs : register(u13 VK_DESCRIPTOR_SET(2));
+RWStructuredBuffer<RTXDI_PackedDIReservoir> u_LightReservoirs : register(u13 VK_DESCRIPTOR_SET(2));
 RWStructuredBuffer<RTXDI_PackedGIReservoir> u_GIReservoirs  : register(u14 VK_DESCRIPTOR_SET(2));
 
 // RTXDI UAVs
@@ -399,12 +398,7 @@ float RAB_LightSampleSolidAnglePdf(RAB_LightSample lightSample)
 
 float2 RAB_GetEnvironmentMapRandXYFromDir(float3 worldDir)
 {
-    EnvMap envMap = EnvMap::make(
-        t_EnvironmentMap,
-        s_EnvironmentMapSampler,
-        g_Const.envMapData
-    );
-    return envMap.worldToUv(worldDir);
+    return Encode_Oct(worldDir);
 }
 
 // Computes the probability of a particular direction being sampled from the environment map
@@ -414,26 +408,14 @@ float RAB_EvaluateEnvironmentMapSamplingPdf(float3 L)
     if (!g_RtxdiBridgeConst.environmentMapImportanceSampling)
         return 1.0;
 
-    float2 uv = RAB_GetEnvironmentMapRandXYFromDir(L);
-
-    uint2 pdfTextureSize = g_RtxdiBridgeConst.environmentPdfTextureSize.xy;
-    uint2 texelPosition = uint2(pdfTextureSize * uv);
-    float texelValue = t_EnvironmentPdfTexture[texelPosition].r;
-
-    int lastMipLevel = g_RtxdiBridgeConst.environmentPdfLastMipLevel;
-    float averageValue = t_EnvironmentPdfTexture.mips[lastMipLevel][uint2(0, 0)].x;
-
-    // The single texel in the last mip level is effectively the average of all texels in mip 0,
-    // padded to a square shape with zeros. So, in case the PDF texture has a 2:1 aspect ratio,
-    // that texel's value is only half of the true average of the rectangular input texture.
-    // Compensate for that by assuming that the input texture is square.
-    float sum = averageValue * square(1u << lastMipLevel);
-    
-    return texelValue / sum;
+    Buffer<uint2> unused;
+    EnvMapSampler envMapSampler = EnvMapSampler::make( s_EnvironmentMapImportanceSampler, t_EnvironmentMapImportanceMap, g_Const.envMapImportanceSamplingParams,
+                                                        t_EnvironmentMap, s_EnvironmentMapSampler, g_Const.envMapSceneParams, unused );
+    return envMapSampler.MIPDescentEvalPdf(L);
 }
 
 // Evaluates pdf for a particular light
-float RAB_EvaluateLocalLightSourcePdf(RTXDI_ResamplingRuntimeParameters params, uint lightIndex)
+float RAB_EvaluateLocalLightSourcePdf(uint lightIndex)
 {
     uint2 pdfTextureSize = g_RtxdiBridgeConst.localLightPdfTextureSize.xy;
     uint2 texelPosition = RTXDI_LinearIndexToZCurve(lightIndex);

@@ -17,7 +17,7 @@
 #include "ShaderParameters.h"
 #include "../PathTracer/ShaderDebug.hlsli"
 
-VK_PUSH_CONSTANT ConstantBuffer<PrepareLightsConstants> g_Const : register(b0);
+ConstantBuffer<PrepareLightsConstants> g_Const                  : register(b0);
 RWStructuredBuffer<PolymorphicLightInfo> u_LightDataBuffer      : register(u0);
 RWBuffer<uint> u_LightIndexMappingBuffer                        : register(u1);
 RWTexture2D<float> u_LocalLightPdfTexture                       : register(u2);
@@ -27,9 +27,11 @@ StructuredBuffer<InstanceData> t_InstanceData                   : register(t2);
 StructuredBuffer<GeometryData> t_GeometryData                   : register(t3);
 StructuredBuffer<GeometryDebugData> t_GeometryDebugData         : register(t4);
 StructuredBuffer<MaterialConstants> t_MaterialConstants         : register(t5);
-Texture2D<float4> t_EnvironmentMap                              : register(t6);
+TextureCube<float4> t_EnvironmentMap                            : register(t6);
+Texture2D<float> t_EnvironmentMapImportanceMap                  : register(t7);
 SamplerState s_MaterialSampler                                  : register(s0);
 SamplerState s_EnvironmentMapSampler                            : register(s1);
+SamplerState s_EnvironmentMapImportanceSampler                  : register(s2);
 
 // this is for debugging viz
 RWTexture2D<float4>                     u_DebugVizOutput        : register(u50);

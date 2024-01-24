@@ -138,7 +138,7 @@ struct InteriorList
         \param[in] nestedPriority Nested priority of intersected surface, with 0 reserved for the highest possible priority.
         \param[in] entering True if material is entered, false if material is left.
     */
-    SETTER_DECL void handleIntersection(uint materialID, uint nestedPriority, bool entering)
+    void handleIntersection(uint materialID, uint nestedPriority, bool entering)
     {
         // Remap priority 0 to the highest priority to allow sorting by high->low priority,
         // and as internally 0 is reserved for empty slots.
@@ -215,7 +215,7 @@ struct InteriorList
 
     /** Sort the interior list by priority.
     */
-    SETTER_DECL void sortSlots()
+    void sortSlots()
     {
 #define CSWAP(_a, _b)               \
         if (slots[_a] < slots[_b])  \

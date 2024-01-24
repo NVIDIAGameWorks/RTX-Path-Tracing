@@ -10,11 +10,11 @@
 
 #define NON_PATH_TRACING_PASS 1
 
+#include "ShaderResourceBindings.hlsli"
+
 #include "PathTracerBridgeDonut.hlsli"
 #include "PathTracer/PathTracer.hlsli"
 #include "RTXDI/SurfaceData.hlsli"
-
-#include "ShaderResourceBindings.hlsli"
 
 [numthreads(NUM_COMPUTE_THREADS_PER_DIM, NUM_COMPUTE_THREADS_PER_DIM, 1)]
 void main( uint2 dispatchThreadID : SV_DispatchThreadID )
@@ -39,7 +39,7 @@ void main( uint2 dispatchThreadID : SV_DispatchThreadID )
 
     const Ray cameraRay = Bridge::computeCameraRay( pixelPos, 0 );
     const HitInfo hit = HitInfo(packedHitInfo);
-    bool hitSurface = hit.isValid() && hit.getType() == HitType::Triangle;
+    bool hitSurface = hit.isValid();// && hit.getType() == HitType::Triangle;
 
 #if 0  // for testing correctness: compute first hit surface motion vector
     {
