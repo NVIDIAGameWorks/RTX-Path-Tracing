@@ -66,8 +66,6 @@ endif()
 
 target_link_libraries(donut_app nvrhi) # needs to come after nvrhi_d3d11 etc. for link order
 
-if(NVRHI_WITH_SHADER_COMPILER)
 add_dependencies(donut_app donut_shaders)
-endif()
 
 set_target_properties(donut_app PROPERTIES FOLDER Donut)

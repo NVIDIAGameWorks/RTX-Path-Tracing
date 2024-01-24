@@ -204,7 +204,7 @@ void TransparentDrawStrategy::PrepareForView(const std::shared_ptr<engine::Scene
                             continue;
 
                         dm::box3 geometryGlobalBoundingBox;
-                        if (mesh->geometries.size() > 1 && !mesh->skinPrototype)
+                        if (mesh->geometries.size() > 1 && mesh->skinPrototype.use_count() != 0)
                         {
                             geometryGlobalBoundingBox = geometry->objectSpaceBounds * walker->GetLocalToWorldTransformFloat();
                             if (!viewFrustum.intersectsWith(geometryGlobalBoundingBox))

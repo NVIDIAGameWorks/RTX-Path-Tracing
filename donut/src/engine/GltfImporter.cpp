@@ -1164,9 +1164,10 @@ bool GltfImporter::Load(
                 cgltf_accessor_read_float(src->skin->inverse_bind_matrices, joint_idx, joint.inverseBindMatrix.m_data, 16);
                 joint.node = nodeMap[src->skin->joints[joint_idx]];
 
-                if (!joint.node->GetLeaf())
+                auto jointNode = joint.node.lock();
+                if (!jointNode->GetLeaf())
                 {
-                    joint.node->SetLeaf(std::make_shared<SkinnedMeshReference>(skinnedInstance));
+                    jointNode->SetLeaf(std::make_shared<SkinnedMeshReference>(skinnedInstance));
                 }
             }
 

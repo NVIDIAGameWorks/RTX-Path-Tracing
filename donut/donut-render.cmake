@@ -30,9 +30,7 @@ add_library(donut_render STATIC EXCLUDE_FROM_ALL ${donut_render_src})
 target_include_directories(donut_render PUBLIC include)
 target_link_libraries(donut_render donut_core donut_engine)
 
-if(NVRHI_WITH_SHADER_COMPILER)
 add_dependencies(donut_render donut_shaders)
-endif()
 
 if(DONUT_WITH_DX11)
 target_compile_definitions(donut_render PUBLIC USE_DX11=1)

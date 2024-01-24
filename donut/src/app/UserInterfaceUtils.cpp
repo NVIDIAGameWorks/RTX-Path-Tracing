@@ -251,6 +251,14 @@ bool donut::app::MaterialEditor(engine::Material* material, bool allowMaterialDo
         }
     }
 
+    update |= ImGui::SliderFloat("Shadow NoL Fadeout", &material->shadowNoLFadeout, 0.0f, 0.2f);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+    "Low tessellation geometry often has triangle (flat) normals that differ significantly from shading normals. \n"
+    "This causes shading vs shadow discrepancy that exposes triangle edges. One way to mitigate this (other than \n"
+    "having more detailed mesh) is to add additional shadowing falloff to hide the seam. This setting is not \n"
+    "physically correct and adds bias. Setting of 0 means no fadeout (default)." );
+
+
     if (ImGui::CollapsingHeader("Path Space Decomposition (SPs)"))
     {
         ImGui::Indent();

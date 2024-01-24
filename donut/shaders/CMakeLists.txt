@@ -35,12 +35,10 @@ else()
 	set(output_base ${CMAKE_CURRENT_BINARY_DIR})
 endif()
 
-if(NVRHI_WITH_SHADER_COMPILER)
-	donut_compile_shaders_all_platforms(
-		TARGET donut_shaders
-		CONFIG ${CMAKE_CURRENT_LIST_DIR}/DonutShaders.cfg
-		FOLDER Donut
-		OUTPUT_BASE ${output_base}
-		SOURCES ${donut_shaders}
-	)
-endif()
+donut_compile_shaders_all_platforms(
+	TARGET donut_shaders
+	CONFIG ${CMAKE_CURRENT_LIST_DIR}/DonutShaders.cfg
+	FOLDER Donut
+	OUTPUT_BASE ${output_base}
+	SOURCES ${donut_shaders}
+)

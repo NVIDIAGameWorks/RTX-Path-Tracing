@@ -113,11 +113,13 @@ namespace donut::render
             {
                 const SkinnedMeshJoint& joint = skinnedInstance->joints[i];
 
-                dm::float4x4 jointMatrix = dm::affineToHomogeneous(dm::affine3(joint.node->GetLocalToWorldTransform() * worldToRoot));
+                auto jointNode = joint.node.lock();
+
+                dm::float4x4 jointMatrix = dm::affineToHomogeneous(dm::affine3(jointNode->GetLocalToWorldTransform() * worldToRoot));
 
                 a.position = (float4(0.f, 0.f, 0.f, 1.f) * jointMatrix).xyz();
 
-                if (SceneGraphNode* parentNode = joint.node->GetParent())
+                if (SceneGraphNode* parentNode = jointNode->GetParent())
                 {
                     dm::float4x4 parentMatrix = dm::affineToHomogeneous(dm::affine3(parentNode->GetLocalToWorldTransform() * worldToRoot));
 
