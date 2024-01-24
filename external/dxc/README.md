@@ -12,11 +12,39 @@ The included licenses apply to the following files:
 
 | License file | Applies to |
 |---|---|
-|LICENSE-MS.txt     |dxil.dll|
+|LICENSE-MS.txt     |dxil.dll (if included in package)|
 |LICENSE-MIT.txt    |d3d12shader.h|
 |LICENSE-LLVM.txt   |all other files|
 
 ## Changelog
+
+### Version 1.7.2308
+
+DX Compiler release for August 2023
+
+- HLSL 2021 is now enabled by default
+- Various HLSL 2021 fixes have been made to
+  - Operator overloading fixes
+  - Templates fixes
+  - Select() with samplers
+  - Bitfields show in reflections
+  - Bitfields can be used on enums
+  - Allow function template default params
+- Issues with loading and using Linux binaries have been resolved
+- Support #pragma region/endregion
+- Various stability and diagnostic improvements
+- Dxcapi.h inline documentation is improved
+- Linking of libraries created by different compilers is disallowed to prevent interface Issues
+- Inout parameter correctness improved
+
+
+The package includes dxc.exe, dxcompiler.dll, corresponding lib and headers, and dxil.dll for x64 and arm64 platforms on Windows.
+The package also includes Linux version of the compiler with corresponding executable, libdxcompiler.so, corresponding headers, and libdxil.so for x64 platforms.
+
+The new DirectX 12 Agility SDK (Microsoft.Direct3D.D3D12 nuget package) and a hardware driver with appropriate support
+are required to run shader model 6.7 shaders. Please see https://aka.ms/directx12agility for details.
+
+The SPIR-V backend of the compiler has been enabled in this release.
 
 ### Version 1.7.2212
 
