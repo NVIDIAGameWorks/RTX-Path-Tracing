@@ -13,14 +13,8 @@
 
 #include "../Config.h"
 
-#include "SceneDefines.hlsli"
 #include "HitInfoType.hlsli"
 #include "SceneTypes.hlsli"
-
-// import Utils.Math.FormatConversion;
-// __exported import Scene.HitInfoType;
-// __exported import Scene.SceneTypes;
-// __exported import Scene.SDFs.SDFGridHitData;
 
 /** Ray hit information.
 
@@ -100,28 +94,6 @@ struct HitInfo
     void __init(const TriangleHit triangleHit);
     static HitInfo make(const TriangleHit triangleHit);
 
-#if 0   // not ported yet
-
-    /** Initialize hit info from a displaced triangle hit.
-        \param[in] displacedTriangleHit Displaced triangle hit information.
-    */
-    void __init(const DisplacedTriangleHit displacedTriangleHit);
-    static HitInfo make(const DisplacedTriangleHit displacedTriangleHit);
-
-    /** Initialize hit info from a curve hit.
-        \param[in] curveHit Curve hit information.
-    */
-    void __init(const CurveHit curveHit);
-    static HitInfo make(const CurveHit curveHit);
-
-    void __init(const SDFGridHit sdfGridHit);
-    static HitInfo make(const SDFGridHit sdfGridHit);
-
-    void __init(const VolumeHit volumeHit);
-    static HitInfo make(const VolumeHit volumeHit);
-
-#endif
-
     /** Return true if object represents a valid hit.
     */
     bool isValid();
@@ -134,34 +106,6 @@ struct HitInfo
         Only valid if type is HitType::Triangle.
     */
     TriangleHit getTriangleHit();
-
-#if 0   // not ported yet
-
-    /** Return the displaced triangle hit.
-        Only valid if type is HitType::DisplacedTriangle.
-    */
-    DisplacedTriangleHit getDisplacedTriangleHit();
-
-#endif
-
-#if 0   // not ported yet
-
-    /** Return the curve hit.
-        Only valid if type is HitType::Curve.
-    */
-    CurveHit getCurveHit();
-
-    /** Return the SDF grid hit.
-        Only valid if type is HitType::SDFGrid.
-    */
-    SDFGridHit getSDFGridHit();
-
-    /** Return the volume hit.
-        Only valid if type is HitType::Volume.
-    */
-    VolumeHit getVolumeHit();
-
-#endif
 
     /** Return the packed hit info.
         \return Packed hit info.
@@ -204,17 +148,12 @@ struct TriangleHit : GeometryHit
 {
     void __init(const PackedHitInfo packed)
     {
-#if SCENE_HAS_GEOMETRY_TYPE(GEOMETRY_TYPE_TRIANGLE_MESH)
         HitInfo::unpackHeader(packed, instanceID, primitiveIndex);
 #if HIT_INFO_USE_COMPRESSION
         barycentrics = unpackUnorm2x16(packed[1]);
 #else
         barycentrics.x = asfloat(packed[2]);
         barycentrics.y = asfloat(packed[3]);
-#endif
-#else
-        #error type not supported?
-        //this = {};
 #endif
     }
     static TriangleHit make(const PackedHitInfo packed)  { TriangleHit ret; ret.__init(packed); return ret; }
@@ -230,7 +169,6 @@ struct TriangleHit : GeometryHit
     PackedHitInfo pack()
     {
         PackedHitInfo packed = PACKED_HIT_INFO_ZERO;
-#if SCENE_HAS_GEOMETRY_TYPE(GEOMETRY_TYPE_TRIANGLE_MESH)
         HitInfo::packHeader(packed, HitType::Triangle, instanceID, primitiveIndex);
 #if HIT_INFO_USE_COMPRESSION
         packed[1] = packUnorm2x16_unsafe(barycentrics);
@@ -238,247 +176,9 @@ struct TriangleHit : GeometryHit
         packed[2] = asuint(barycentrics.x);
         packed[3] = asuint(barycentrics.y);
 #endif
-#endif
         return packed;
     }
 };
-
-#if 0   // not ported yet
-
-/** Displaced triangle hit information.
-
-    Encoding:
-    | header  | barycentrics.x | barycentrics.y | displacement |
-    | 64 bits | 24 bit unorm   | 24 bit unorm   | 16 bit float |
-*/
-struct DisplacedTriangleHit : GeometryHit
-{
-    float displacement;
-
-    void __init(const PackedHitInfo packed)
-    {
-#if SCENE_HAS_GEOMETRY_TYPE(GEOMETRY_TYPE_DISPLACED_TRIANGLE_MESH)
-        HitInfo::unpackHeader(packed, instanceID, primitiveIndex);
-        const uint ux = (packed[2] >> 8);
-        const uint uy = ((packed[2] & 0xff) << 16) | (packed[3] >> 16);
-        barycentrics = float2(ux, uy) * (1.f / 16777215);
-        displacement = f16tof32(packed[3]);
-#else
-        this = {};
-#endif
-    }
-    static DisplacedTriangleHit make(const PackedHitInfo packed)  { DisplacedTriangleHit ret; ret.__init(packed); return ret; }
-
-    PackedHitInfo pack()
-    {
-        PackedHitInfo packed = {};
-#if SCENE_HAS_GEOMETRY_TYPE(GEOMETRY_TYPE_DISPLACED_TRIANGLE_MESH)
-        HitInfo::packHeader(packed, HitType::DisplacedTriangle, instanceID, primitiveIndex);
-        const uint2 u = trunc(barycentrics * 16777215.f + 0.5f);
-        packed[2] = (u.x << 8) | (u.y >> 16);
-        packed[3] = (u.y << 16) | f32tof16(displacement);
-#endif
-        return packed;
-    }
-};
-
-#endif
-
-
-#if 0   // not ported yet
-
-/** Curve hit information.
-
-    Encoding:
-    | header  | barycentrics.x | barycentrics.y |
-    | 64 bits | 32 bit float   | 32 bit float   |
-*/
-struct CurveHit : GeometryHit
-{
-    void __init(const PackedHitInfo packed)
-    {
-#if SCENE_HAS_GEOMETRY_TYPE(GEOMETRY_TYPE_CURVE)
-        HitInfo::unpackHeader(packed, instanceID, primitiveIndex);
-        barycentrics.x = asfloat(packed[2]);
-        barycentrics.y = asfloat(packed[3]);
-#else
-        // this = {};
-#endif
-    }
-    static CurveHit make(const PackedHitInfo packed)  { CurveHit ret; ret.__init(packed); return ret; }
-
-    PackedHitInfo pack()
-    {
-        PackedHitInfo packed = {};
-#if SCENE_HAS_GEOMETRY_TYPE(GEOMETRY_TYPE_CURVE)
-        HitInfo::packHeader(packed, HitType::Curve, instanceID, primitiveIndex);
-        packed[2] = asuint(barycentrics.x);
-        packed[3] = asuint(barycentrics.y);
-#endif
-        return packed;
-    }
-};
-
-/** SDF grid hit information.
-
-    Encoding:
-    | header  | extra  | extra  |
-    | 64 bits | 32 bit | 32 bit |
-*/
-struct SDFGridHit
-{
-    GeometryInstanceID instanceID;
-    SDFGridHitData hitData;
-
-    void __init(const PackedHitInfo packed)
-    {
-#if SCENE_HAS_GEOMETRY_TYPE(GEOMETRY_TYPE_SDF_GRID)
-        uint primitiveData;
-        HitInfo::unpackHeader(packed, instanceID, primitiveData);
-
-#ifdef FALCOR_INTERNAL
-
-#if SCENE_SDF_GRID_IMPLEMENTATION == SCENE_SDF_GRID_IMPLEMENTATION_NDSDF
-        hitData.packedVoxelUnitCoords = primitiveData;
-        hitData.locationCode.x = packed[2];
-        hitData.locationCode.y = packed[3];
-#elif SCENE_SDF_GRID_IMPLEMENTATION == SCENE_SDF_GRID_IMPLEMENTATION_SVS
-        hitData.primitiveID = primitiveData;
-        hitData.packedVoxelUnitCoords = packed[2];
-#elif SCENE_SDF_GRID_IMPLEMENTATION == SCENE_SDF_GRID_IMPLEMENTATION_SBS
-#if SCENE_SDF_SBS_VIRTUAL_BRICK_COORDS_BITS + SCENE_SDF_SBS_BRICK_LOCAL_VOXEL_COORDS_BITS <= 30
-        hitData.packedVoxelCoords = primitiveData;
-        hitData.packedVoxelUnitCoords = packed[2];
-#else
-        hitData.packedVirtualBrickCoords = primitiveData;
-        hitData.packedBrickLocalVoxelCoords = packed[2];
-        hitData.packedVoxelUnitCoords = packed[3];
-#endif
-#elif SCENE_SDF_GRID_IMPLEMENTATION == SCENE_SDF_GRID_IMPLEMENTATION_SVO
-        hitData.svoIndex = primitiveData;
-        hitData.packedVoxelUnitCoords = packed[2];
-#endif
-
-#else // FALCOR_INTERNAL
-
-#if SCENE_SDF_GRID_IMPLEMENTATION == SCENE_SDF_GRID_IMPLEMENTATION_NDSDF
-        hitData.lod = primitiveData;
-        hitData.hitT = asfloat(packed[2]);
-#elif SCENE_SDF_GRID_IMPLEMENTATION == SCENE_SDF_GRID_IMPLEMENTATION_SVS || SCENE_SDF_GRID_IMPLEMENTATION == SCENE_SDF_GRID_IMPLEMENTATION_SBS
-        hitData.primitiveID = primitiveData;
-        hitData.hitT = asfloat(packed[2]);
-#elif SCENE_SDF_GRID_IMPLEMENTATION == SCENE_SDF_GRID_IMPLEMENTATION_SVO
-        hitData.svoIndex = primitiveData;
-        hitData.hitT = asfloat(packed[2]);
-#endif
-
-#endif // FALCOR_INTERNAL
-
-#else
-		#error not implemented
-        // this = {};
-#endif // SCENE_HAS_GEOMETRY_TYPE(GEOMETRY_TYPE_SDF_GRID)
-    }
-    static SDFGridHit make(const PackedHitInfo packed)  { SDFGridHit ret; ret.__init(packed); return ret; }
-
-    PackedHitInfo pack()
-    {
-        PackedHitInfo packed = {};
-
-#if SCENE_HAS_GEOMETRY_TYPE(GEOMETRY_TYPE_SDF_GRID)
-        uint primitiveData = {};
-#ifdef FALCOR_INTERNAL
-
-#if SCENE_SDF_GRID_IMPLEMENTATION == SCENE_SDF_GRID_IMPLEMENTATION_NDSDF
-        primitiveData = hitData.packedVoxelUnitCoords;
-        packed[2] = hitData.locationCode.x;
-        packed[3] = hitData.locationCode.y;
-#elif SCENE_SDF_GRID_IMPLEMENTATION == SCENE_SDF_GRID_IMPLEMENTATION_SVS
-        primitiveData = hitData.primitiveID;
-        packed[2] = hitData.packedVoxelUnitCoords;
-#elif SCENE_SDF_GRID_IMPLEMENTATION == SCENE_SDF_GRID_IMPLEMENTATION_SBS
-#if SCENE_SDF_SBS_VIRTUAL_BRICK_COORDS_BITS + SCENE_SDF_SBS_BRICK_LOCAL_VOXEL_COORDS_BITS <= 30
-        primitiveData = hitData.packedVoxelCoords;
-        packed[2] = hitData.packedVoxelUnitCoords;
-#else
-        primitiveData = hitData.packedVirtualBrickCoords;
-        packed[2] = hitData.packedBrickLocalVoxelCoords;
-        packed[3] = hitData.packedVoxelUnitCoords;
-#endif
-#elif SCENE_SDF_GRID_IMPLEMENTATION == SCENE_SDF_GRID_IMPLEMENTATION_SVO
-        primitiveData = hitData.svoIndex;
-        packed[2] = hitData.packedVoxelUnitCoords;
-#endif
-
-#else // FALCOR_INTERNAL
-
-#if SCENE_SDF_GRID_IMPLEMENTATION == SCENE_SDF_GRID_IMPLEMENTATION_NDSDF
-        primitiveData = hitData.lod;
-        packed[2] = asuint(hitData.hitT);
-#elif SCENE_SDF_GRID_IMPLEMENTATION == SCENE_SDF_GRID_IMPLEMENTATION_SVS || SCENE_SDF_GRID_IMPLEMENTATION == SCENE_SDF_GRID_IMPLEMENTATION_SBS
-        primitiveData = hitData.primitiveID;
-        packed[2] = asuint(hitData.hitT);
-#elif SCENE_SDF_GRID_IMPLEMENTATION == SCENE_SDF_GRID_IMPLEMENTATION_SVO
-        primitiveData = hitData.svoIndex;
-        packed[2] = asuint(hitData.hitT);
-#endif
-
-#endif // FALCOR_INTERNAL
-
-        HitInfo::packHeader(packed, HitType::SDFGrid, instanceID, primitiveData);
-#endif // SCENE_HAS_GEOMETRY_TYPE(GEOMETRY_TYPE_SDF_GRID)
-
-        return packed;
-    }
-};
-
-#endif
-
-#if 0   // not ported yet
-
-/** Volume hit information.
-
-    Encoding (without compression):
-    | header  | t            | g            |
-    | 64 bits | 32 bit float | 32 bit float |
-
-    Encoding (with compression):
-    | header  | g            | t            |
-    | 16 bits | 16 bit float | 32 bit float |
-*/
-struct VolumeHit
-{
-    float t;
-    float g;
-
-    void __init(const PackedHitInfo packed)
-    {
-#if HIT_INFO_USE_COMPRESSION
-        t = asfloat(packed[1]);
-        g = f16tof32(packed[0] & 0xffff);
-#else
-        t = asfloat(packed[1]);
-        g = asfloat(packed[2]);
-#endif
-    }
-    static VolumeHit make(const PackedHitInfo packed)  { VolumeHit ret; ret.__init(packed); return ret; }
-
-    PackedHitInfo pack()
-    {
-        PackedHitInfo packed = {};
-        HitInfo::packHeader(packed, HitType::Volume);
-#if HIT_INFO_USE_COMPRESSION
-        packed[1] = asuint(t);
-        packed[0] |= f32tof16(g) & 0xffff;
-#else
-        packed[1] = asuint(t);
-        packed[2] = asuint(g);
-#endif
-        return packed;
-    }
-};
-
-#endif
 
 // Definition for HitInfo functions
 void HitInfo::__init()
@@ -514,58 +214,6 @@ static HitInfo HitInfo::make(const TriangleHit triangleHit)
     HitInfo ret; ret.__init(triangleHit); return ret; 
 }
 
-#if 0   // not ported yet
-
-/** Initialize hit info from a displaced triangle hit.
-    \param[in] displacedTriangleHit Displaced triangle hit information.
-*/
-void HitInfo::__init(const DisplacedTriangleHit displacedTriangleHit)
-{
-    data = displacedTriangleHit.pack();
-}
-static HitInfo HitInfo::make(const DisplacedTriangleHit displacedTriangleHit)  
-{ 
-    HitInfo ret; ret.__init(displacedTriangleHit); return ret; 
-}
-
-/** Initialize hit info from a curve hit.
-    \param[in] curveHit Curve hit information.
-*/
-HitInfo::__init(const CurveHit curveHit)
-{
-    data = curveHit.pack();
-}
-static HitInfo HitInfo::make(const CurveHit curveHit)
-{ 
-    HitInfo ret; ret.__init(curveHit); return ret;
-}
-
-/** Initialize hit info from a SDF grid hit.
-    \param[in] sdfGridHit Curve hit information.
-*/
-HitInfo::__init(const SDFGridHit sdfGridHit)
-{
-    data = sdfGridHit.pack();
-}
-static HitInfo HitInfo::make(const SDFGridHit sdfGridHit)
-{ 
-    HitInfo ret; ret.__init(sdfGridHit); return ret; 
-}
-
-/** Initialize hit info from a volume hit.
-    \param[in] volumeHit Volume hit information.
-*/
-HitInfo::__init(const VolumeHit volumeHit)
-{
-    data = volumeHit.pack();
-}
-static HitInfo HitInfo::make(const VolumeHit volumeHit)  
-{ 
-    HitInfo ret; ret.__init(volumeHit); return ret; 
-}
-
-#endif
-
 /** Return true if object represents a valid hit.
 */
 bool HitInfo::isValid()
@@ -587,46 +235,6 @@ TriangleHit HitInfo::getTriangleHit()
 {
     return TriangleHit::make(data);
 }
-
-#if 0   // not ported yet
-
-/** Return the displaced triangle hit.
-    Only valid if type is HitType::DisplacedTriangle.
-*/
-DisplacedTriangleHit HitInfo::getDisplacedTriangleHit()
-{
-    return DisplacedTriangleHit::make(data);
-}
-
-#endif
-
-#if 0   // not ported yet
-
-/** Return the curve hit.
-    Only valid if type is HitType::Curve.
-*/
-CurveHit HitInfo::getCurveHit()
-{
-    return CurveHit::make(data);
-}
-
-/** Return the SDF grid hit.
-    Only valid if type is HitType::SDFGrid.
-*/
-SDFGridHit HitInfo::getSDFGridHit()
-{
-    return SDFGridHit::make(data);
-}
-
-/** Return the volume hit.
-    Only valid if type is HitType::Volume.
-*/
-VolumeHit HitInfo::getVolumeHit()
-{
-    return VolumeHit::make(data);
-}
-
-#endif
 
 /** Return the packed hit info.
     \return Packed hit info.

@@ -26,6 +26,14 @@ void LocalConfig::PreferredSceneOverride(std::string& preferredScene)
     {
         //preferredScene = "transparent-machines.scene.json";
     }
+    if (PTSDK_LOCAL_CONFIG_ID_STRING == "GENERIC_STABLE_LIGHTS")
+    {
+        preferredScene = "convergence-test.scene.json";
+    }
+    if (PTSDK_LOCAL_CONFIG_ID_STRING == "PROC_SKY_TESTING")
+    {
+        preferredScene = "programmer-art-proc-sky.scene.json";
+    }
 }
 
 void LocalConfig::PostAppInit(Sample& sample, SampleUIData& sampleUI)
@@ -59,8 +67,8 @@ void LocalConfig::PostAppInit(Sample& sample, SampleUIData& sampleUI)
         sampleUI.ToneMappingParams.autoExposure = false;
         //sampleUI.RTXDI.reGirSettings.Mode = rtxdi::ReGIRMode::Grid;
         sampleUI.ReferenceFireflyFilterEnabled = false;
-        //sampleUI.EnableRussianRoulette = false;
-        //sampleUI.BounceCount = 1;
+        sampleUI.EnableRussianRoulette = false;
+        sampleUI.BounceCount = 1;
 #endif
     }
 
@@ -83,6 +91,40 @@ void LocalConfig::PostAppInit(Sample& sample, SampleUIData& sampleUI)
         sampleUI.NEELocalType = 1;              // avoid any temporal issues from ReGIR (due to presampling + multiple full local samples)
         sampleUI.RealtimeAA = 1;
     }
+
+    if (PTSDK_LOCAL_CONFIG_ID_STRING == "ENVMAP_TUNING")
+    {
+        sampleUI.AccumulationTarget = 256;
+        sampleUI.RealtimeMode = false;
+        sampleUI.UseReSTIRDI = false;
+        sampleUI.UseReSTIRGI = false;
+        sampleUI.ToneMappingParams.autoExposure = false;
+        sampleUI.StablePlanesActiveCount = 1;
+        sampleUI.ReferenceFireflyFilterEnabled = false;
+        sampleUI.EnableRussianRoulette = false;
+        sampleUI.BounceCount = 2;
+
+        for (int i = 0; sampleUI.TogglableNodes != nullptr && i < sampleUI.TogglableNodes->size(); i++)
+        {
+            TogglableNode & node = (*sampleUI.TogglableNodes)[i];
+            if (node.UIName == "Ceiling")
+                node.SetSelected(false);
+        }
+    }
+
+    if (PTSDK_LOCAL_CONFIG_ID_STRING == "GENERIC_STABLE_LIGHTS")
+    {
+        sampleUI.AccumulationTarget = 4096;
+        sampleUI.RealtimeMode = false;
+        sampleUI.UseReSTIRDI = false;
+        sampleUI.UseReSTIRGI = false;
+        sampleUI.ToneMappingParams.autoExposure = false;
+        sampleUI.StablePlanesActiveCount = 1;
+        //sampleUI.ReferenceFireflyFilterEnabled = false;
+        //sampleUI.EnableRussianRoulette = false;
+        //sampleUI.BounceCount = 2;
+    }
+
 }
 
 void LocalConfig::PostSceneLoad(Sample& sample, SampleUIData& sampleUI)
@@ -101,8 +143,8 @@ void LocalConfig::PostMaterialLoad(donut::engine::Material& mat)
     if (mat.domain == MaterialDomain::TransmissiveAlphaBlended) mat.domain = MaterialDomain::AlphaBlended;
     if (mat.domain == MaterialDomain::TransmissiveAlphaTested)  mat.domain = MaterialDomain::AlphaTested;
 #endif
-#if 0 // disable emissive lights
-    if (PTSDK_LOCAL_CONFIG_ID_STRING == "REF_VS_REALTIME")
+#if 1 // disable emissive lights
+    if (PTSDK_LOCAL_CONFIG_ID_STRING == "ENVMAP_TUNING")
         mat.emissiveIntensity = 0.0f;
 #endif
 }

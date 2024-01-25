@@ -87,6 +87,11 @@ struct MaterialConstants
     float   thicknessFactor;
     float   diffuseTransmissionFactor;
 
+    float   shadowNoLFadeout;
+    uint    padding0;
+    uint    padding1;
+    uint    padding2;
+
     VolumeConstants volume;
 };
 

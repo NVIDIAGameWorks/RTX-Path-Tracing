@@ -40,6 +40,7 @@ namespace donut::log
 
     void SetMinSeverity(Severity severity);
     void SetCallback(Callback func);
+    void DisablePopups();
 	Callback GetCallback();
     void ResetCallback();
     void SetErrorMessageCaption(const char* caption);

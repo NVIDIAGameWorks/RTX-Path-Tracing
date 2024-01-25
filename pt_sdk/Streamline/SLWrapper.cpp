@@ -458,6 +458,14 @@ void SLWrapper::Shutdown()
         sl::ResourceTag{nullptr, sl::kBufferTypeHUDLessColor, sl::ResourceLifecycle::eValidUntilPresent} };
     successCheck(slSetTag(m_viewport, inputs, _countof(inputs), nullptr), "slSetTag_clear");
 
+    // SL bug adds ref count to native device and will keep it live
+    // So call extra release on native device as work around
+    ID3D12Device* nativeDevice = NULL;
+    ID3D12Device* device = ((ID3D12Device*)m_Device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device));
+    SLWrapper::Get().ProxyToNative(device, (void**)&nativeDevice);
+    nativeDevice->Release(); // ProxyToNative
+    nativeDevice->Release(); // Extra Release
+
     // Shutdown Streamline
     if (m_sl_initialised) {
         successCheck(slShutdown(), "slShutdown");

@@ -16,7 +16,11 @@
 
 #include <donut/shaders/view_cb.h>
 #include <donut/shaders/sky_cb.h>
-#include "../../external/RTXDI/rtxdi-sdk/include/rtxdi/RtxdiParameters.h"
+
+
+#include <rtxdi/ReSTIRDIParameters.h>
+#include <rtxdi/ReGIRParameters.h>
+#include <rtxdi/ReSTIRGIParameters.h>
 #include "../PathTracer/PathTracerShared.h"
 
 #define TASK_PRIMITIVE_LIGHT_BIT 0x80000000u
@@ -73,7 +77,8 @@ struct PrepareLightsConstants
     uint currentFrameLightOffset;
     uint previousFrameLightOffset;
     uint _padding;
-    EnvMapData envMapData;
+    EnvMapSceneParams envMapSceneParams;
+    EnvMapImportanceSamplingParams envMapImportanceSamplingParams;
 };
 
 struct PrepareLightsTask
@@ -197,7 +202,7 @@ struct ConfidenceConstants
 
 struct VisualizationConstants
 {
-    RTXDI_ResamplingRuntimeParameters runtimeParams;
+    RTXDI_RuntimeParameters runtimeParams;
 
     int2 outputSize;
     float2 resolutionScale;
@@ -205,84 +210,6 @@ struct VisualizationConstants
     uint visualizationMode;
     uint inputBufferIndex;
     uint enableAccumulation;
-};
-
-struct ReStirDIConstants
-{
-	uint initialOutputBufferIndex;
-	uint temporalInputBufferIndex;
-	uint temporalOutputBufferIndex;
-	uint spatialInputBufferIndex;
-
-	uint spatialOutputBufferIndex;
-	uint finalShadingReservoir;
-	uint discardInvisibleSamples;
-    uint numRegirBuildSamples;
-   
-	uint enableInitialVisibility;
-	uint enableFinalVisibility;
-	uint enablePermutationSampling;
-	float brdfCutoff;
-
-	uint numPrimaryLocalLightSamples;
-	uint numPrimaryBrdfSamples;
-	uint numPrimaryInfiniteLightSamples;
-	uint numPrimaryEnvironmentSamples;
-
-	uint maxHistoryLength;
-	uint numSpatialSamples;
-	uint numDisocclusionBoostSamples;
-    uint discountNaiveSamples;
-
-	float temporalDepthThreshold;
-	float temporalNormalThreshold;
-	uint temporalBiasCorrection;
-	float boilingFilterStrength;
-
-	float spatialSamplingRadius;
-	float spatialDepthThreshold;
-	float spatialNormalThreshold;
-    uint spatialBiasCorrection;
-	
-   
-    uint visualizeRegirCells; 
-	uint _padding0;
-	uint _padding1;
-    uint _padding2;
-    
-};
-
-struct ReStirGIConstants {
-    
-    uint temporalInputBufferIndex;
-	uint temporalOutputBufferIndex;
-	uint spatialInputBufferIndex;
-	uint spatialOutputBufferIndex;
-
-    uint finalShadingReservoir; 
-    uint enableTemporalResampling;
-    uint maxHistoryLength;
-    uint maxReservoirAge;
-
-    uint enablePermutationSampling;
-    uint enableFallbackSampling;
-    float boilingFilterStrength;
-	float temporalDepthThreshold;
-
-	float temporalNormalThreshold;
-    uint temporalBiasCorrection;
-	uint numSpatialSamples; 
-    float spatialSamplingRadius;
-	
-    float spatialDepthThreshold;
-	float spatialNormalThreshold;
-    uint spatialBiasCorrection;
-    uint enableFinalVisibility;
-
-    uint enableFinalMIS;
-    uint _padding0; 
-    uint _padding1;
-    uint _padding2;
 };
 
 struct ReGirIndirectConstants
@@ -295,22 +222,37 @@ struct ReGirIndirectConstants
 
 struct RtxdiBridgeConstants 
 {
-	RTXDI_ResamplingRuntimeParameters runtimeParams;
-    ReStirDIConstants reStirDI;
-    ReStirGIConstants reStirGI;
-    ReGirIndirectConstants reGirIndirect;
+    RTXDI_RuntimeParameters runtimeParams;
 
-	uint frameIndex;
+	// Common buffer parameters
+	RTXDI_LightBufferParameters lightBufferParams;
+	RTXDI_RISBufferSegmentParameters localLightsRISBufferSegmentParams;
+	RTXDI_RISBufferSegmentParameters environmentLightRISBufferSegmentParams;
+
+	// Algorithm specific parameters
+	ReSTIRDI_Parameters restirDI;
+	ReGIR_Parameters regir;
+	ReSTIRGI_Parameters restirGI;
+
+    ReGirIndirectConstants regirIndirect;
+	
+    // Application specific parameters
+    uint frameIndex;
 	uint environmentMapImportanceSampling;
 	uint maxLights;
 	float rayEpsilon;
 
-	uint2 environmentPdfTextureSize;
+	uint2 _padding3;
 	uint2 localLightPdfTextureSize;
 
 	uint2 frameDim;
     uint environmentPdfLastMipLevel;
     uint localLightPdfLastMipLevel;
+
+    uint reStirGIEnableTemporalResampling;
+    uint reStirGIVaryAgeThreshold;
+    uint _padding1;
+    uint _padding2;
 };
 
 struct SecondarySurface

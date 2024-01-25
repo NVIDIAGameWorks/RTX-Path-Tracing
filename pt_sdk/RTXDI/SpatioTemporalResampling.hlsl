@@ -34,7 +34,7 @@ void RayGen()
 #endif
     const RTXDI_ResamplingRuntimeParameters params = g_ResamplingConst.runtimeParams;
 
-    uint2 pixelPosition = RTXDI_ReservoirToPixelPos(GlobalIndex, params);
+    uint2 pixelPosition = RTXDI_DIReservoirToPixelPos(GlobalIndex, params);
 
     RAB_RandomSamplerState rng = RAB_InitRandomSampler(pixelPosition, 2); //Falcor uses 4
 
@@ -48,12 +48,12 @@ void RayGen()
      //    usePermutationSampling = !IsComplexSurface(pixelPosition, surface);
      //}
 
-    RTXDI_Reservoir spResult = RTXDI_EmptyReservoir();
+    RTXDI_DIReservoir spResult = RTXDI_EmptyDIReservoir();
     int2 temporalSamplePixelPos = -1;
 
     if (RAB_IsSurfaceValid(surface))
     {
-        RTXDI_Reservoir curSample = RTXDI_LoadReservoir(params,
+        RTXDI_DIReservoir curSample = RTXDI_LoadDIReservoir(params,
             GlobalIndex, g_ResamplingConst.initialOutputBufferIndex);
 
         float3 motionVector = u_MotionVectors[pixelPosition].xyz;
@@ -86,5 +86,5 @@ void RayGen()
     }
 #endif
 
-    RTXDI_StoreReservoir(spResult, params, GlobalIndex, g_ResamplingConst.temporalOutputBufferIndex);
+    RTXDI_StoreDIReservoir(spResult, params, GlobalIndex, g_ResamplingConst.temporalOutputBufferIndex);
 }

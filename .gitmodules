@@ -4,6 +4,7 @@
 [submodule "external/Opacity-MicroMap-SDK"]
 	path = external/Opacity-MicroMap-SDK
 	url = https://github.com/NVIDIAGameWorks/Opacity-MicroMap-SDK.git
+	branch = main-minimal
 [submodule "donut/nvrhi"]
 	path = donut/nvrhi
 	url = https://github.com/NVIDIAGameWorks/nvrhi.git
@@ -11,12 +12,19 @@
 	path = external/RTXDI
 	url = https://github.com/NVIDIAGameWorks/RTXDI.git
 	branch = sdk-only
+[submodule "media"]
+	path = media
+	url = https://github.com/NVIDIAGameWorks/Path-Tracing-SDK-Media
 [submodule "external/Streamline"]
 	path = external/Streamline
 	url = https://github.com/NVIDIAGameWorks/Streamline.git
 [submodule "external/NVAPI"]
 	path = external/NVAPI
 	url = https://github.com/NVIDIA/nvapi.git
-[submodule "media"]
-	path = media
-	url = https://github.com/NVIDIAGameWorks/Path-Tracing-SDK-Media
+	branch = 530
+[submodule "external/cxxopts"]
+	path = external/cxxopts
+	url = https://github.com/jarro2783/cxxopts.git
+[submodule "donut/ShaderMake"]
+	path = donut/ShaderMake
+	url = https://github.com/NVIDIAGameWorks/ShaderMake.git

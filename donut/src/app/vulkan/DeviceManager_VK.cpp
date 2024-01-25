@@ -56,6 +56,9 @@ freely, subject to the following restrictions:
 #include <nvrhi/vulkan.h>
 #include <nvrhi/validation.h>
 
+#define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
+#include <vulkan/vulkan.hpp>
+
 using namespace donut;
 using namespace donut::app;
 
@@ -420,7 +423,7 @@ bool DeviceManager_VK::createInstance()
     const vk::Result res = vk::createInstance(&info, nullptr, &m_VulkanInstance);
     if (res != vk::Result::eSuccess)
     {
-        log::error("Failed to create a Vulkan instance, error code = %s", nvrhi::vulkan::resultToString(res));
+        log::error("Failed to create a Vulkan instance, error code = %s", nvrhi::vulkan::resultToString(VkResult(res)));
         return false;
     }
 
@@ -445,7 +448,7 @@ void DeviceManager_VK::installDebugCallback()
 
 bool DeviceManager_VK::pickPhysicalDevice()
 {
-    vk::Format requestedFormat = nvrhi::vulkan::convertFormat(m_DeviceParams.swapChainFormat);
+    VkFormat requestedFormat = nvrhi::vulkan::convertFormat(m_DeviceParams.swapChainFormat);
     vk::Extent2D requestedExtent(m_DeviceParams.backBufferWidth, m_DeviceParams.backBufferHeight);
 
     auto devices = m_VulkanInstance.enumeratePhysicalDevices();
@@ -524,7 +527,7 @@ bool DeviceManager_VK::pickPhysicalDevice()
         bool surfaceFormatPresent = false;
         for (const vk::SurfaceFormatKHR& surfaceFmt : surfaceFmts)
         {
-            if (surfaceFmt.format == requestedFormat)
+            if (surfaceFmt.format == vk::Format(requestedFormat))
             {
                 surfaceFormatPresent = true;
                 break;
@@ -791,7 +794,7 @@ bool DeviceManager_VK::createDevice()
     const vk::Result res = m_VulkanPhysicalDevice.createDevice(&deviceDesc, nullptr, &m_VulkanDevice);
     if (res != vk::Result::eSuccess)
     {
-        log::error("Failed to create a Vulkan physical device, error code = %s", nvrhi::vulkan::resultToString(res));
+        log::error("Failed to create a Vulkan physical device, error code = %s", nvrhi::vulkan::resultToString(VkResult(res)));
         return false;
     }
 
@@ -880,7 +883,7 @@ bool DeviceManager_VK::createSwapChain()
     const vk::Result res = m_VulkanDevice.createSwapchainKHR(&desc, nullptr, &m_SwapChain);
     if (res != vk::Result::eSuccess)
     {
-        log::error("Failed to create a Vulkan swap chain, error code = %s", nvrhi::vulkan::resultToString(res));
+        log::error("Failed to create a Vulkan swap chain, error code = %s", nvrhi::vulkan::resultToString(VkResult(res)));
         return false;
     }
 

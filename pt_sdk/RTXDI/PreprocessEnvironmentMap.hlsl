@@ -12,17 +12,36 @@
 #include "HelperFunctions.hlsli"
 #include <donut/shaders/vulkan.hlsli>
 #include "../../external/RTXDI/rtxdi-sdk/include/rtxdi/RtxdiMath.hlsli"
+#include "../PathTracer/Utils/Math/MathHelpers.hlsli"
 
 RWTexture2D<float> u_IntegratedMips[] : register(u0);
 
 VK_PUSH_CONSTANT ConstantBuffer<PreprocessEnvironmentMapConstants> g_Const : register(b0);
 
 #if INPUT_ENVIRONMENT_MAP
+
+// Note: we added a layer that converts cubemap into env
+#define ENVIRONMENT_MAP_IS_CUBEMAP 1
+
+
+#if ENVIRONMENT_MAP_IS_CUBEMAP
+TextureCube<float4> t_EnvironmentMap : register(t0);
+SamplerState s_LinearSampler : register(s0);
+#else
 Texture2D<float4> t_EnvironmentMap : register(t0);
+#endif
 
 float getPixelWeight(uint2 position)
 {
+#if ENVIRONMENT_MAP_IS_CUBEMAP
+    // Note: we added a simple adapter here that converts the input cubemap into equirectangular environment map used for importance
+    // sampling; What we possibly want to do in future is to use Falcor-style MIP descent in Equal Area Octahedral Projection pdf
+    // (https://www.sciencedirect.com/science/article/pii/S0898122114000133) or similar.
+    float3 dir = latlong_map_to_world( float2(position+0.5)/float2(g_Const.sourceSize.xy) );
+    float3 color = t_EnvironmentMap.SampleLevel(s_LinearSampler, dir, 0).rgb;
+#else
     float3 color = t_EnvironmentMap[position].rgb;
+#endif
     float luma = max(calcLuminance(color), 0);
 
     // Do not sample invalid colors.

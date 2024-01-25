@@ -14,8 +14,6 @@
 #include "PathTracerTypes.hlsli"
 
 #include "Scene/ShadingData.hlsli"
-#include "Scene/Lights/EnvMapSampler.hlsli"
-// #include "Rendering/Materials/InteriorListHelpers.hlsli" not yet ported
 
 
 // Global compile-time path tracer settings for debugging, performance or quality tweaks; could be in a separate file or Config.hlsli but it's convenient to have them in here where they're used.
@@ -58,8 +56,6 @@ namespace PathTracer
 
         path.origin                 = float3(0, 0, 0);
         path.dir                    = float3(0, 0, 0);
-        // path.pdf                    = 0;
-        // path.normal                 = float3(0, 0, 0);
 
         path.thp                    = float3(1, 1, 1);
 #if PATH_TRACER_MODE!=PATH_TRACER_MODE_FILL_STABLE_PLANES
@@ -141,7 +137,7 @@ namespace PathTracer
 #if 0   // old "classic" one
         float prob = max(0.f, 1.f - rrVal);
 #else   // a milder version of Falcor's Russian Roulette
-        float prob = saturate( 0.85 - rrVal ); prob = prob*prob*prob*prob;
+        float prob = saturate( 0.8 - rrVal ); prob = prob*prob*prob*prob;
 #endif
 
         if (sampleNext1D(sampleGenerator) < prob)
@@ -182,13 +178,12 @@ namespace PathTracer
             // No ReSTIR GI, or not SP 0, or a secondary vertex, or a delta event - use full BRDF/PDF weight
             UpdatePathThroughput(path, bs.weight);
         }
-        //path.pdf = bs.pdf;
         result.Pdf = bs.pdf;
         result.Dir = bs.wo;
         result.IsDelta = bs.isLobe(LobeType::Delta);
         result.IsTransmission = bs.isLobe(LobeType::Transmission);
 
-        path.clearEventFlags(); // removes PathFlags::transmission, PathFlags::specular, PathFlags::delta flags
+        path.clearScatterEventFlags(); // removes PathFlags::transmission, PathFlags::specular, PathFlags::delta flags
 
         // Compute ray origin for next ray segment.
         path.origin = shadingData.computeNewRayOrigin(bs.isLobe(LobeType::Reflection));
@@ -207,7 +202,7 @@ namespace PathTracer
             else
             {
                 // path.incrementBounces(BounceType::Specular);
-                path.setSpecular();
+                path.setScatterSpecular();
             }
         }
 
@@ -215,22 +210,22 @@ namespace PathTracer
         if (bs.isLobe(LobeType::Transmission))
         {
             // path.incrementBounces(BounceType::Transmission);
-            path.setTransmission();
+            path.setScatterTransmission();
 
             // Update interior list and inside volume flag if needed.
             UpdateNestedDielectricsOnScatterTransmission(shadingData, path, workingContext);
         }
 
+        float angleBefore = path.rayCone.getSpreadAngle();
+
         // Handle delta events.
         if (bs.isLobe(LobeType::Delta))
-            path.setDelta();
+            path.setScatterDelta();
         else
+        {
             path.setDeltaOnlyPath(false);
-
-        float angleBefore = path.rayCone.getSpreadAngle();
-        if (!path.isDelta())
             path.rayCone = RayCone::make(path.rayCone.getWidth(), min( path.rayCone.getSpreadAngle() + ComputeRayConeSpreadAngleExpansionByScatterPDF( bs.pdf ), 2.0 * M_PI ) );
-
+        }
 
         // if bouncePDF then it's a delta event - expansion angle is 0
         path.fireflyFilterK = ComputeNewScatterFireflyFilterK(path.fireflyFilterK, workingContext.ptConsts.camera.pixelConeSpreadAngle, bs.pdf, bs.lobeP);
@@ -350,7 +345,8 @@ namespace PathTracer
 
         if (path.environmentMISWeight > 0)
         {
-            float3 Le = Bridge::EnvMap::Eval(path.dir);
+            EnvMap envMap = Bridge::CreateEnvMap();
+            float3 Le = envMap.Eval(path.dir);
             environmentEmission = path.environmentMISWeight * Le;
         }
 
@@ -393,8 +389,6 @@ namespace PathTracer
         // - Sample scatter ray or terminate
 
         const bool isPrimaryHit     = path.getVertexIndex() == 1;
-        const HitType hitType       = HitInfo::make(path.hitPacked).getType();
-        const bool isTriangleHit    = hitType == HitType::Triangle;
 
         const TriangleHit triangleHit = TriangleHit::make(path.hitPacked);
 
@@ -459,9 +453,6 @@ namespace PathTracer
 
         BSDFProperties bsdfProperties = bsdf.getProperties(shadingData);
 
-        // Check if the scatter event is samplable by the light sampling technique.
-        const bool isLightSamplable = path.isLightSamplable(); // same as !path.isDelta()
-
         // Collect emissive triangle radiance.
         float3 surfaceEmission = 0.0;
         if (path.emissiveMISWeight > 0 && (any(bsdfProperties.emission)) )
@@ -502,7 +493,11 @@ namespace PathTracer
 
         // Generate the next path segment!
         ScatterResult scatterResult = GenerateScatterRay(shadingData, bsdf, path, sampleGenerator, workingContext);
-        
+
+//        // debug-view invalid scatters
+//        if (!scatterResult.Valid && path.getVertexIndex() == 1)
+//            workingContext.debug.DrawDebugViz( float4( 1, 0, 0, 1 ) );
+       
         // Compute NextEventEstimation a.k.a. direct light sampling!
 #if defined(PTSDK_COMPILE_WITH_NEE) && PTSDK_COMPILE_WITH_NEE!=0
         NEEResult neeResult = HandleNEE(optimizationHints, preScatterPath, scatterResult, shadingData, bsdf, sampleGenerator, workingContext); 

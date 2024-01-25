@@ -11,8 +11,6 @@
 #pragma once
 #include "../PathTracer/Utils/HostDeviceShared.hlsli"
 
-BEGIN_NAMESPACE_FALCOR
-
 enum class ToneMapperOperator : uint32_t
 {
     Linear,             ///< Linear mapping
@@ -37,4 +35,3 @@ struct ToneMapperParams
     float3x4 colorTransform;
 };
 
-END_NAMESPACE_FALCOR

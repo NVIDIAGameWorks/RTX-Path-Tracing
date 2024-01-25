@@ -76,6 +76,8 @@ if (DONUT_WITH_NVRHI)
     endif()
 
     add_subdirectory(shaders)
+    add_subdirectory(ShaderMake)
+
 endif()
 
 include(donut-core.cmake)

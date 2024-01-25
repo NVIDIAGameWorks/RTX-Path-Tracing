@@ -68,8 +68,11 @@ enum class DebugViewType : int
     SecondarySurfaceRadiance,
     ReSTIRGIOutput,
 
-    ReSTIRDIInitialOutput,
-    ReSTIRDIFinalOutput,
+    ReSTIRDIInitialOutput, 
+    ReSTIRDITemporalOutput,
+    ReSTIRDISpatialOutput,
+    ReSTIRDIFinalOutput,  
+    ReSTIRDIFinalContribution,
     ReGIRIndirectOutput,
 
     MaxCount

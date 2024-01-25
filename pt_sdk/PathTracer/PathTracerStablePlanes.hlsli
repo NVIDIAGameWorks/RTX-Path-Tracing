@@ -27,24 +27,24 @@ namespace PathTracer
         // 1. first generate new virtual path - this is just for consistency with the rest of the code, most of it is unused and compiled out
         PathState newPath       = oldPath;
         // newPath.incrementVertexIndex(); <- not needed, happens in nextHit
-        newPath.dir             = lobe.Wo;
+        newPath.dir             = lobe.dir;
         newPath.thp             *= lobe.thp;
         //newPath.pdf             = 0;
         newPath.origin          = shadingData.computeNewRayOrigin(lobe.transmission==0);  // bool param is viewside
         newPath.stableBranchID  = StablePlanesAdvanceBranchID( oldPath.stableBranchID, deltaLobeIndex );
 
-        newPath.setDelta();
+        newPath.setScatterDelta();
 
         // Handle reflection events.
         if (!lobe.transmission)
         {
             // newPath.incrementBounces(BounceType::Specular);
-            newPath.setSpecular();
+            newPath.setScatterSpecular();
         }
         else // transmission
         {
             // newPath.incrementBounces(BounceType::Transmission);
-            newPath.setTransmission();
+            newPath.setScatterTransmission();
 
             // Update interior list and inside volume flag.
             if (!shadingData.mtl.isThinSurface())
@@ -59,7 +59,7 @@ namespace PathTracer
         float3x3 localT;
         if (lobe.transmission)
         {
-            localT = MatrixRotateFromTo(lobe.Wo, rayDir);   // no need to refract again, we already have in and out vectors
+            localT = MatrixRotateFromTo(lobe.dir, rayDir);   // no need to refract again, we already have in and out vectors
         }
         else
         {
@@ -103,7 +103,7 @@ namespace PathTracer
 
         bool setAsBase = true;    // if path no longer stable, stop and set as a base
         float passthroughOverride = 0.0;
-        if (vertexIndex < min( cStablePlaneMaxVertexIndex, workingContext.ptConsts.maxStablePlaneVertexDepth) && !pathStopping)
+        if ( (vertexIndex < workingContext.ptConsts.maxStablePlaneVertexDepth) && !pathStopping) // Note: workingContext.ptConsts.maxStablePlaneVertexDepth already includes cStablePlaneMaxVertexIndex and MaxBounceCount
         {
             DeltaLobe deltaLobes[cMaxDeltaLobes]; uint deltaLobeCount; float nonDeltaPart;
             bridgedData.bsdf.evalDeltaLobes(bridgedData.shadingData, deltaLobes, deltaLobeCount, nonDeltaPart);
@@ -113,7 +113,7 @@ namespace PathTracer
 
             const float nonDeltaIgnoreThreshold = (1e-5);
             const float deltaIgnoreThreshold    = (0.001f);   
-            const float neverIgnoreThreshold = workingContext.ptConsts.stablePlanesSplitStopThreshold / float(vertexIndex); // TODO: add screen space dither to threshold
+            const float neverIgnoreThreshold = workingContext.ptConsts.stablePlanesSplitStopThreshold / float(vertexIndex); // TODO: add screen space dither to threshold?
             bool hasNonDeltaLobes = nonDeltaPart > nonDeltaIgnoreThreshold;
             passthroughOverride = saturate(1.0-nonDeltaPart*10.0); // if setting as base and no (or low) non-delta lobe, override denoising settings for better passthrough
 

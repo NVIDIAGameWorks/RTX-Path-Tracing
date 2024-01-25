@@ -14,7 +14,6 @@
 #include "Config.h"    
 
 #include "Utils/Math/Ray.hlsli"
-#include "Utils/Geometry/GeometryHelpers.hlsli"
 #include "Rendering/Materials/TexLODHelpers.hlsli"
 #include "PathState.hlsli"
 #include "Scene/Material/TextureSampler.hlsli"
@@ -109,8 +108,7 @@ namespace PathTracer
         // Optimal selfIntersectionShorteningK default found empirically.
         Ray ComputeVisibilityRay(float3 surfaceWorldPos, float3 surfaceFaceNormal, const float selfIntersectionShorteningK = 0.9985)
         { 
-            surfaceFaceNormal = dot(surfaceFaceNormal, Direction) >= 0 ? surfaceFaceNormal : -surfaceFaceNormal;
-            surfaceWorldPos = computeRayOrigin(surfaceWorldPos, surfaceFaceNormal);
+            surfaceWorldPos = ComputeRayOrigin(surfaceWorldPos, surfaceFaceNormal, Direction);
             return Ray::make(surfaceWorldPos, Direction, 0.0, Distance*selfIntersectionShorteningK); 
         }
 
@@ -157,7 +155,7 @@ namespace PathTracer
         */
         float3 getRayOrigin(float3 rayDir)
         {
-            return computeRayOrigin(pos, dot(faceNormal, rayDir) >= 0 ? faceNormal : -faceNormal);
+            return ComputeRayOrigin(pos, dot(faceNormal, rayDir) >= 0 ? faceNormal : -faceNormal);
         }
     };
 

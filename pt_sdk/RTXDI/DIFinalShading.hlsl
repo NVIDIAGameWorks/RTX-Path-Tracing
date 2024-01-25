@@ -10,7 +10,7 @@
 
 #include "ShaderParameters.h"
 #include "RtxdiApplicationBridge.hlsli"
-#include "../../external/RTXDI/rtxdi-sdk/include/rtxdi/ResamplingFunctions.hlsli"
+#include <rtxdi/DIResamplingFunctions.hlsli>
 
 // this is for debugging viz
 //RWTexture2D<float4>                     u_DebugVizOutput    : register(u50);
@@ -18,41 +18,42 @@
 // Get the final sample for the given pixel computed using RTXDI.
 bool getFinalSample(const uint2 reservoirPos, const RAB_Surface surface, out float3 Li, out float3 dir, out float distance)
 {
-    RTXDI_ResamplingRuntimeParameters runtimeParams = g_RtxdiBridgeConst.runtimeParams;
-    
     RAB_LightSample lightSample = RAB_EmptyLightSample();
     
     // Get the reservoir
-    RTXDI_Reservoir reservoir = RTXDI_LoadReservoir(runtimeParams, reservoirPos, g_RtxdiBridgeConst.reStirDI.finalShadingReservoir);
+    RTXDI_DIReservoir reservoir = RTXDI_LoadDIReservoir(
+        g_RtxdiBridgeConst.restirDI.reservoirBufferParams, 
+        reservoirPos, 
+        g_RtxdiBridgeConst.restirDI.bufferIndices.shadingInputBufferIndex);
 
     Li = 0.0.xxx;
     dir = 0.0.xxx;
     distance = 0.0;
 
     // Abort if we don't have a valid surface
-    if (!RAB_IsSurfaceValid(surface) || !RTXDI_IsValidReservoir(reservoir)) return false;
+    if (!RAB_IsSurfaceValid(surface) || !RTXDI_IsValidDIReservoir(reservoir)) return false;
 
     // Load the selected light and the specific light sample on it
-    uint lightIdx = RTXDI_GetReservoirLightIndex(reservoir);
-    float2 lightUV = RTXDI_GetReservoirSampleUV(reservoir);
+    uint lightIdx = RTXDI_GetDIReservoirLightIndex(reservoir);
+    float2 lightUV = RTXDI_GetDIReservoirSampleUV(reservoir);
     RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIdx, false);
     lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, lightUV);
 
     // Check the light is visible to the surface 
-    if (g_RtxdiBridgeConst.reStirDI.enableFinalVisibility)
+    if (g_RtxdiBridgeConst.restirDI.shadingParams.enableFinalVisibility)
     {
         const RayDesc ray = setupVisibilityRay(surface, lightSample, g_RtxdiBridgeConst.rayEpsilon);
 
         if (!GetFinalVisibility(SceneBVH, ray))
         {
-            RTXDI_StoreVisibilityInReservoir(reservoir, 0, true);
-            RTXDI_StoreReservoir(reservoir, runtimeParams, reservoirPos, g_RtxdiBridgeConst.reStirDI.finalShadingReservoir);
+            RTXDI_StoreVisibilityInDIReservoir(reservoir, 0, true);
+            RTXDI_StoreDIReservoir(reservoir, g_RtxdiBridgeConst.restirDI.reservoirBufferParams, reservoirPos, g_RtxdiBridgeConst.restirDI.bufferIndices.shadingInputBufferIndex);
             return false;
         }
     }
 
     // Compute incident radience
-    ComputeIncidentRadience(surface, RTXDI_GetReservoirInvPdf(reservoir), lightSample, Li, dir, distance);
+    ComputeIncidentRadience(surface, RTXDI_GetDIReservoirInvPdf(reservoir), lightSample, Li, dir, distance);
     
     return true;
 }
@@ -64,33 +65,33 @@ bool ReSTIRDIFinalContribution(const uint2 reservoirPos, const uint2 pixelPos, c
     hitDistance = 0.0;
 
     PathTracer::PathLightSample ls = PathTracer::PathLightSample::make();
-    bool isValid = getFinalSample(reservoirPos, surface, ls.Li, ls.Direction, ls.Distance);
-    if (!isValid)
-        return false;
 
-    // Apply sample shading
+    if (getFinalSample(reservoirPos, surface, ls.Li, ls.Direction, ls.Distance))
+    {
+        // Apply sample shading
 #if PTSDK_DIFFUSE_SPECULAR_SPLIT
-    float3 bsdfThpDiff, bsdfThpSpec; 
+    float3 bsdfThpDiff, bsdfThpSpec;
     surface.Eval(ls.Direction, bsdfThpDiff, bsdfThpSpec);
     float3 bsdfThp = bsdfThpDiff + bsdfThpSpec;
 #else
 #error denoiser requires specular split currently but easy to switch back
-    float3 bsdfThp = surface.Eval(ls.dir);
+        float3 bsdfThp = surface.Eval(ls.dir);
 #endif
 
-    float3 pathThp = Unpack_R11G11B10_FLOAT(u_Throughput[pixelPos]);
+        float3 pathThp = Unpack_R11G11B10_FLOAT(u_Throughput[pixelPos]);
 
-    // Compute final radiance reaching the camera (there's no firefly filter for ReSTIR here unfortunately)
-    diffuseContribution  = bsdfThpDiff * ls.Li * pathThp;
-    specularContribution = bsdfThpSpec * ls.Li * pathThp;
+        // Compute final radiance reaching the camera (there's no firefly filter for ReSTIR here unfortunately)
+        diffuseContribution = bsdfThpDiff * ls.Li * pathThp;
+        specularContribution = bsdfThpSpec * ls.Li * pathThp;
 
 #if 0 // applying firefly filter here doesn't actually help so let's save on few instructions
-    diffuseRadiance = FireflyFilter( diffuseRadiance, g_Const.ptConsts.fireflyFilterThreshold, 1.0 );
-    specularRadiance = FireflyFilter( specularRadiance, g_Const.ptConsts.fireflyFilterThreshold, 1.0 );
+        diffuseRadiance = FireflyFilter(diffuseRadiance, g_Const.ptConsts.fireflyFilterThreshold, 1.0);
+        specularRadiance = FireflyFilter(specularRadiance, g_Const.ptConsts.fireflyFilterThreshold, 1.0);
 #endif
 
-    hitDistance = ls.Distance;
-
+        hitDistance = ls.Distance;
+    }
+ 
     // useful for debugging!
     DebugContext debug;
     debug.Init(pixelPos, g_Const.debug, u_FeedbackBuffer, u_DebugLinesBuffer, u_DebugDeltaPathTree, u_DeltaPathSearchStack, u_DebugVizOutput);
@@ -98,7 +99,10 @@ bool ReSTIRDIFinalContribution(const uint2 reservoirPos, const uint2 pixelPos, c
     switch (g_Const.debug.debugViewType)
     {
     case (int)DebugViewType::ReSTIRDIFinalOutput:
-        debug.DrawDebugViz(pixelPos, float4(/*ls.Li*/diffuseContribution + specularContribution, 1));
+        debug.DrawDebugViz(pixelPos, float4(ls.Li, 1));
+        break;
+    case (int)DebugViewType::ReSTIRDIFinalContribution:
+        debug.DrawDebugViz(pixelPos, float4(diffuseContribution + specularContribution, 1));
         break;
     }
     
@@ -110,14 +114,14 @@ bool ReSTIRDIFinalContribution(const uint2 reservoirPos, const uint2 pixelPos, c
 void main(uint2 dispatchThreadID : SV_DispatchThreadID)
 {
     const uint2 reservoirPos = dispatchThreadID.xy;
-	const uint2 pixelPos = RTXDI_ReservoirPosToPixelPos(dispatchThreadID.xy, g_RtxdiBridgeConst.runtimeParams);
+	const uint2 pixelPos = RTXDI_ReservoirPosToPixelPos(dispatchThreadID.xy, g_RtxdiBridgeConst.runtimeParams.activeCheckerboardField);
 
     RAB_Surface surface = RAB_GetGBufferSurface(pixelPos, false);
 
     if (!RAB_IsSurfaceValid(surface))
         return;
 
-    float3 diffuseContribution, specularContribution;
+    float3 diffuseContribution, specularContribution = 0;;
     float hitDistance;
 
     if (ReSTIRDIFinalContribution(reservoirPos, pixelPos, surface, diffuseContribution, specularContribution, hitDistance))
@@ -143,5 +147,8 @@ void main(uint2 dispatchThreadID : SV_DispatchThreadID)
             u_Output[pixelPos] += float4(diffuseContribution + specularContribution, 0);
         }
     }
+
+	// an example on how to debug tangent space on the RTXDI side
+    // u_DebugVizOutput[pixelPos] = float4(DbgShowNormalSRGB(surface._B), 1);
 }	
 #endif // #ifndef USE_AS_INCLUDE

@@ -23,7 +23,7 @@
 #include <donut/engine/ShaderFactory.h>
 #include <donut/core/vfs/VFS.h>
 #include <donut/core/log.h>
-#include <nvrhi/common/shader-blob.h>
+#include <ShaderMake/ShaderBlob.h>
 
 using namespace std;
 using namespace donut::vfs;
@@ -88,21 +88,30 @@ nvrhi::ShaderHandle ShaderFactory::CreateShader(const char* fileName, const char
 {
     std::shared_ptr<IBlob> byteCode = GetBytecode(fileName, entryName);
 
-    if(!byteCode)
+    if (!byteCode)
         return nullptr;
 
-    vector<nvrhi::ShaderConstant> constants;
+    vector<ShaderMake::ShaderConstant> constants;
     if (pDefines)
     {
         for (const ShaderMacro& define : *pDefines)
-            constants.push_back(nvrhi::ShaderConstant{ define.name.c_str(), define.definition.c_str() });
+            constants.push_back(ShaderMake::ShaderConstant{ define.name.c_str(), define.definition.c_str() });
     }
 
     nvrhi::ShaderDesc descCopy = desc;
     descCopy.entryName = entryName;
 
-    return nvrhi::createShaderPermutation(m_Device, descCopy, byteCode->data(), byteCode->size(),
-        constants.data(), uint32_t(constants.size()));
+    const void* permutationBytecode = nullptr;
+    size_t permutationSize = 0;
+    if (!ShaderMake::FindPermutationInBlob(byteCode->data(), byteCode->size(), constants.data(), uint32_t(constants.size()), &permutationBytecode, &permutationSize))
+    {
+        const std::string message = ShaderMake::FormatShaderNotFoundMessage(byteCode->data(), byteCode->size(), constants.data(), uint32_t(constants.size()));
+        log::error("%s", message.c_str());
+
+        return nullptr;
+    }
+
+    return m_Device->createShader(descCopy, permutationBytecode, permutationSize);
 }
 
 nvrhi::ShaderLibraryHandle ShaderFactory::CreateShaderLibrary(const char* fileName, const std::vector<ShaderMacro>* pDefines)
@@ -112,13 +121,22 @@ nvrhi::ShaderLibraryHandle ShaderFactory::CreateShaderLibrary(const char* fileNa
     if (!byteCode)
         return nullptr;
 
-    vector<nvrhi::ShaderConstant> constants;
+    vector<ShaderMake::ShaderConstant> constants;
     if (pDefines)
     {
         for (const ShaderMacro& define : *pDefines)
-            constants.push_back(nvrhi::ShaderConstant{ define.name.c_str(), define.definition.c_str() });
+            constants.push_back(ShaderMake::ShaderConstant{ define.name.c_str(), define.definition.c_str() });
     }
 
-    return nvrhi::createShaderLibraryPermutation(m_Device, byteCode->data(), byteCode->size(),
-        constants.data(), uint32_t(constants.size()));
+    const void* permutationBytecode = nullptr;
+    size_t permutationSize = 0;
+    if (!ShaderMake::FindPermutationInBlob(byteCode->data(), byteCode->size(), constants.data(), uint32_t(constants.size()), &permutationBytecode, &permutationSize))
+    {
+        const std::string message = ShaderMake::FormatShaderNotFoundMessage(byteCode->data(), byteCode->size(), constants.data(), uint32_t(constants.size()));
+        log::error("%s", message.c_str());
+
+        return nullptr;
+    }
+
+    return m_Device->createShaderLibrary(permutationBytecode, permutationSize);
 }

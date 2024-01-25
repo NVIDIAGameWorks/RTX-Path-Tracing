@@ -43,54 +43,42 @@ enum class SampleGeneratorEffectSeed : uint32_t
 
 /** Convenience functions for generating 1D/2D/3D values in the range [0,1).
 */
-float sampleNext1D( inout SampleGenerator sampleGenerator )
+template<typename SampleGeneratorType>
+float sampleNext1D( inout SampleGeneratorType sampleGenerator )
 {
-    // Use upper 24 bits and divide by 2^24 to get a number u in [0,1).
-    // In floating-point precision this also ensures that 1.0-u != 0.0.
     uint bits = sampleGenerator.next();
-    return (bits >> 8) * 0x1p-24;
+    // a.) converting the upper 24bits to [0, 1) because the higher bits have better distribution in some hash algorithms (like sobol)
+    // b.) this is a good way to guarantee [0, 1) since float32 mantissa is only 23 bits
+    return (bits>>8) / float(1 << 24); // same as '/ 16777216.0'
 }
-float2 sampleNext2D( inout SampleGenerator sampleGenerator )
+template<typename SampleGeneratorType>
+float2 sampleNext2D( inout SampleGeneratorType sampleGenerator )
 {
-#ifndef SAMPLER_HAS_SPECIALIZED_2D3D
     float2 sample;
-    // Don't use the float2 initializer to ensure consistent order of evaluation.
+    // Not using float4 initializer to ensure consistent order of evaluation.
     sample.x = sampleNext1D(sampleGenerator);
     sample.y = sampleNext1D(sampleGenerator);
     return sample;
-#else
-    uint2 bits = sampleGenerator.next2D();
-    return (bits >> 8) * 0x1p-24.xx;
-#endif
 }
-float3 sampleNext3D( inout SampleGenerator sampleGenerator )
+template<typename SampleGeneratorType>
+float3 sampleNext3D( inout SampleGeneratorType sampleGenerator )
 {
-#ifndef SAMPLER_HAS_SPECIALIZED_2D3D
     float3 sample;
-    // Don't use the float3 initializer to ensure consistent order of evaluation.
+    // Not using float4 initializer to ensure consistent order of evaluation.
     sample.x = sampleNext1D(sampleGenerator);
     sample.y = sampleNext1D(sampleGenerator);
     sample.z = sampleNext1D(sampleGenerator);
     return sample;
-#else
-    uint3 bits = sampleGenerator.next3D();
-    return (bits >> 8) * 0x1p-24.xxx;
-#endif
 }
 float4 sampleNext4D( inout SampleGenerator sampleGenerator )
 {
-#ifndef SAMPLER_HAS_SPECIALIZED_2D3D
     float4 sample;
-    // Don't use the float3 initializer to ensure consistent order of evaluation.
+    // Not using float4 initializer to ensure consistent order of evaluation.
     sample.x = sampleNext1D(sampleGenerator);
     sample.y = sampleNext1D(sampleGenerator);
     sample.z = sampleNext1D(sampleGenerator);
     sample.w = sampleNext1D(sampleGenerator);
     return sample;
-#else
-    uint3 bits = sampleGenerator.next3D();
-    return (bits >> 8) * 0x1p-24.xxx;
-#endif
 }
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 

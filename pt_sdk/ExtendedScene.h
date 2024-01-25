@@ -68,6 +68,7 @@ namespace donut::engine
         std::optional<bool>         psdExclude;
         std::optional<int>          psdDominantDeltaLobe;
         std::optional<float>        emissiveIntensity;
+        std::optional<float>        shadowNoLFadeout;
 
         [[nodiscard]] std::shared_ptr<SceneGraphLeaf> Clone() override;
         void Load(const Json::Value& node) override;

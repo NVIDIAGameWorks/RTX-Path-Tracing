@@ -8,6 +8,8 @@
 * license agreement from NVIDIA CORPORATION is strictly prohibited.
 */
 
+#include "ShaderResourceBindings.hlsli"
+
 // This define is meant to trigger a compile error if any resources are declared in any PathTracer files
 #define register
 

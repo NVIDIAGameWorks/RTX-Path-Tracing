@@ -3,6 +3,7 @@ build*/
 .vs
 nrd.cfg
 omm.cfg
+tests/output/*
 
 # local project files for shader development outside of VS
 *.sublime-*

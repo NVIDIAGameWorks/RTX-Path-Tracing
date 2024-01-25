@@ -22,6 +22,8 @@
 
 #include "PathTracer/ShaderDebug.hlsli"
 
+#include "PathTracer/Lighting/Types.h"
+
 #define PTDEMO_LIGHT_CONSTANTS_COUNT 64
 
 struct SampleConstants
@@ -35,8 +37,8 @@ struct SampleConstants
     LightConstants lights[PTDEMO_LIGHT_CONSTANTS_COUNT];
     PlanarViewConstants view;
     PlanarViewConstants previousView;
-    EnvMapData envMapData;
-    EnvMapSamplerData envMapSamplerData;
+    EnvMapSceneParams envMapSceneParams;
+    EnvMapImportanceSamplingParams envMapImportanceSamplingParams;
     PathTracerConstants ptConsts;
     DebugConstants debug;
     float4 denoisingHitParamConsts;

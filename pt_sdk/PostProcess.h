@@ -55,13 +55,11 @@ private:
 
     nvrhi::DeviceHandle             m_Device;
     std::shared_ptr<donut::engine::CommonRenderPasses> m_CommonPasses;
-    std::shared_ptr<donut::engine::FramebufferFactory> m_FramebufferFactory;
 
     nvrhi::ShaderHandle             m_RenderShaders[(uint32_t)RenderPassType::MaxCount];
     nvrhi::GraphicsPipelineHandle   m_RenderPSOs[(uint32_t)RenderPassType::MaxCount];
     nvrhi::ShaderHandle             m_ComputeShaders[(uint32_t)ComputePassType::MaxCount];
     nvrhi::ComputePipelineHandle    m_ComputePSOs[(uint32_t)ComputePassType::MaxCount];
-    nvrhi::BindingLayoutHandle      m_BindingLayoutCSs[(uint32_t)ComputePassType::MaxCount];
 
     nvrhi::SamplerHandle            m_PointSampler;
     nvrhi::SamplerHandle            m_LinearSampler;

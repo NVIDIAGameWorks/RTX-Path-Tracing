@@ -14,8 +14,7 @@
 #include "Config.h"
 #include "PathTracerTypes.hlsli"
 #include "Rendering/Volumes/HomogeneousVolumeSampler.hlsli"
-#include "Scene/Lights/LightHelpers.hlsli"
-#include "Scene/Lights/EnvMapSampler.hlsli"
+#include "Lighting/Distant.hlsli"
 
 namespace Bridge
 {
@@ -51,12 +50,6 @@ namespace Bridge
 
     static HomogeneousVolumeData loadHomogeneousVolumeData(const uint materialID);
 
-    // Get the number of analytic light sources
-    static uint getAnalyticLightCount();
-
-    // Sample single analytic light source given the index (with respect to getAnalyticLightCount() )
-    static bool sampleAnalyticLight(const float3 shadingPosW, uint lightIndex, inout SampleGenerator sampleGenerator, out AnalyticLightSample ls);
-
     // 2.5D motion vectors
     static float3 computeMotionVector(float3 posW, float3 prevPosW);
 
@@ -86,28 +79,15 @@ namespace Bridge
     static void traceScatterRay(const PathState path, inout RayDesc ray, inout RayQuery<RAY_FLAG_NONE> rayQuery, inout PackedHitInfo packedHitInfo, inout uint SERSortKey, DebugContext debug);
 
     static void StoreSecondarySurfacePositionAndNormal(uint2 pixelCoordinate, float3 worldPos, float3 normal);
+    
+    // If HasEnvMap returns false, Eval, EvalPdf and Sample will not be called.
+    static bool HasEnvMap();
+    
+    // Used for evaluating environment map in given direction (but no importance sampling); available if HasEnvMap() returns true
+    static EnvMap CreateEnvMap();
 
-    namespace EnvMap
-    {
-        // If HasEnvMap returns false, Eval, EvalPdf and Sample will not be called.
-        static bool HasEnvMap();
-
-        // Evaluates the radiance coming from world space direction 'dir'.
-        static float3 Eval(float3 dir);
-
-        // Evaluates the probability density function for a specific direction.
-        // Note that the sample() function already returns the pdf for the sampled location.
-        // But, in some cases we need to evaluate the pdf for other directions (e.g. for MIS).
-        // \param[in] dir World space direction (normalized).
-        // \return Probability density function evaluated for direction 'dir'.
-        static float EvalPdf(float3 dir);
-
-        // Importance sampling of the environment map.
-        static EnvMapSample Sample(const float2 rnd);
-        
-        static EnvMapSample SamplePresampled(const float rnd);
-
-    } // namespace EnvMap
+    // Used for environment map (distant lights) importance sampling; available if HasEnvMap() returns true
+    static EnvMapSampler CreateEnvMapImportanceSampler();
 };
 
 #endif // __PATH_TRACER_BRIDGE_HLSLI__

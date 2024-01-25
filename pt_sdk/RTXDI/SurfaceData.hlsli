@@ -11,8 +11,11 @@
 #ifndef SURFACE_DATA_HLSLI
 #define SURFACE_DATA_HLSLI
 
+#include "../PathTracer/PathTracerTypes.hlsli"
+
+#include "../ShaderResourceBindings.hlsli"
+
 #include "../PathTracerBridgeDonut.hlsli"
-//#include "../PathTracer/PathTracer.hlsli"
 
 #include "ShaderParameters.h"
 #include "HelperFunctions.hlsli"
@@ -232,7 +235,7 @@ struct PathTracerSurfaceData
 
 	float3 ComputeNewRayOrigin(bool viewside = true)
 	{
-		return computeRayOrigin(_posW, (_frontFacing == viewside) ? _faceN : -_faceN);
+		return ComputeRayOrigin(_posW, (_frontFacing == viewside) ? _faceN : -_faceN);
 	}
 
 	float3 _ToLocal(float3 v)
@@ -316,18 +319,18 @@ float2 Fp16ToFp32(uint r)
 	return f16tof32(v);
 }
 
-uint2 Fp32ToFp16(float3 v)
+uint2 Fp32ToFp16(float4 v)
 {
 	const uint d0 = Fp32ToFp16(v.xy);
-	const uint d1 = f32tof16(v.z);
+	const uint d1 = Fp32ToFp16(v.zw);
 	return uint2(d0, d1);
 }
 
-float3 Fp16ToFp32(uint2 d)
+float4 Fp16ToFp32(uint2 d)
 {
 	const float2 d0 = Fp16ToFp32(d.x);
-	const float d1 = f16tof32(d.y);
-	return float3(d0.xy, d1);
+	const float2 d1 = Fp16ToFp32(d.y);
+	return float4(d0.xy, d1.xy);
 }
 
 uint3 Fp32ToFp16(float3 a, float3 b)
@@ -389,7 +392,8 @@ PackedPathTracerSurfaceData RunCompress(PathTracerSurfaceData d)
 	c._mtl = d._mtl.packedData;
 	c._T = Fp32ToFp16(Encode_Oct(d._T));
 	c._N = Fp32ToFp16(Encode_Oct(d._N));
-	c._V = Fp32ToFp16(d._V);
+    float btNormal = -sign(dot( cross(d._T, d._N), d._B ));
+	c._V = Fp32ToFp16(float4(d._V, btNormal));
 	c._posW = d._posW;
 	c._faceN = Fp32ToFp16(Encode_Oct(d._faceN));
 
@@ -409,13 +413,14 @@ PathTracerSurfaceData RunDecompress(PackedPathTracerSurfaceData c)
 	PathTracerSurfaceData d;
 
 	d._mtl.packedData = c._mtl;
+    float4 VandTW = Fp16ToFp32(c._V);
 	d._T = Decode_Oct(Fp16ToFp32(c._T));
 	d._N = Decode_Oct(Fp16ToFp32(c._N));
-	d._B = ReconstructOrthonormal(d._N, d._T);
+	d._B = ReconstructOrthonormal(d._N, d._T*VandTW.w);  // I'm not 100% sure this is correct - it looks like we need to store the winding bit as well somehere. But it looks ok in all tests
 	
 	// Fp16ToFp32(c._V_posW, d._V, d._posW);
 	
-	d._V = Fp16ToFp32(c._V);
+	d._V = VandTW.xyz;
 	d._posW = c._posW;
 
 	d._faceN = Decode_Oct(Fp16ToFp32(c._faceN));

@@ -12,16 +12,19 @@
 
 #include "RtxdiApplicationBridge.hlsli"
 
-#include "../../external/RTXDI/rtxdi-sdk/include/rtxdi/ResamplingFunctions.hlsli"
+#include <rtxdi/PresamplingFunctions.hlsli>
 
 [numthreads(256, 1, 1)]
 void main(uint GlobalIndex : SV_DispatchThreadID)
 {
-    const RTXDI_ResamplingRuntimeParameters params = g_RtxdiBridgeConst.runtimeParams;
-    
     RAB_RandomSamplerState rng = RAB_InitRandomSampler(uint2(GlobalIndex & 0xfff, GlobalIndex >> 12), 1);
     RAB_RandomSamplerState coherentRng = RAB_InitRandomSampler(uint2(GlobalIndex >> 8, 0), 1);
 
-    RTXDI_PresampleLocalLightsForReGIR(rng, coherentRng, GlobalIndex, 
-        g_RtxdiBridgeConst.reStirDI.numRegirBuildSamples, params);
+    RTXDI_PresampleLocalLightsForReGIR(
+        rng,
+        coherentRng,
+        GlobalIndex,
+        g_RtxdiBridgeConst.lightBufferParams.localLightBufferRegion,
+        g_RtxdiBridgeConst.localLightsRISBufferSegmentParams,
+        g_RtxdiBridgeConst.regir);
 }

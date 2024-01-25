@@ -767,7 +767,9 @@ void Scene::UpdateSkinnedMeshes(nvrhi::ICommandList* commandList, uint32_t frame
 
         for (size_t i = 0; i < skinnedInstance->joints.size(); i++)
         {
-            dm::float4x4 jointMatrix = dm::affineToHomogeneous(dm::affine3(skinnedInstance->joints[i].node->GetLocalToWorldTransform() * worldToRoot));
+            auto jointNode = skinnedInstance->joints[i].node.lock();
+
+            dm::float4x4 jointMatrix = dm::affineToHomogeneous(dm::affine3(jointNode->GetLocalToWorldTransform() * worldToRoot));
             jointMatrix = skinnedInstance->joints[i].inverseBindMatrix * jointMatrix;
             jointMatrices[i] = jointMatrix;
         }

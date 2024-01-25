@@ -153,6 +153,10 @@ namespace donut::engine
 
         constants.flags |= (uint)(min(nestedPriority, kMaterialMaxNestedPriority)) << MaterialFlags_NestedPriorityShift;
         constants.flags |= (uint)(clamp(psdDominantDeltaLobe+1, 0, 7)) << MaterialFlags_PSDDominantDeltaLobeP1Shift;
+
+        constants.shadowNoLFadeout = std::clamp( shadowNoLFadeout, 0.0f, 0.25f );
+
+        constants.padding0 = constants.padding1 = constants.padding2 = 42;
     }
 
     bool Material::SetProperty(const std::string& name, const dm::float4& value)

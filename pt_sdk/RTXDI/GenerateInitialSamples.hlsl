@@ -12,7 +12,7 @@
 
 #include "RtxdiApplicationBridge.hlsli"
 
-#include "../../external/RTXDI/rtxdi-sdk/include/rtxdi/ResamplingFunctions.hlsli"
+#include <rtxdi/InitialSamplingFunctions.hlsli>
 
 #if USE_RAY_QUERY
 [numthreads(RTXDI_SCREEN_SPACE_GROUP_SIZE, RTXDI_SCREEN_SPACE_GROUP_SIZE, 1)]
@@ -26,9 +26,7 @@ void RayGen()
     uint2 dispatchThreadID = DispatchRaysIndex().xy;
 #endif
 
-    const RTXDI_ResamplingRuntimeParameters runtimeParams = g_RtxdiBridgeConst.runtimeParams;
-
-    uint2 pixelPosition = RTXDI_ReservoirPosToPixelPos(dispatchThreadID, runtimeParams);
+   uint2 pixelPosition = RTXDI_ReservoirPosToPixelPos(dispatchThreadID, g_RtxdiBridgeConst.runtimeParams.activeCheckerboardField);
 
     RAB_RandomSamplerState rng = RAB_InitRandomSampler(pixelPosition, 1);
     RAB_RandomSamplerState tileRng = RAB_InitRandomSampler(pixelPosition / RTXDI_TILE_SIZE_IN_PIXELS, 1);
@@ -39,26 +37,38 @@ void RayGen()
         return;
   
     RTXDI_SampleParameters sampleParams = RTXDI_InitSampleParameters(
-         g_RtxdiBridgeConst.reStirDI.numRegirBuildSamples,
-         g_RtxdiBridgeConst.reStirDI.numPrimaryLocalLightSamples,
-         g_RtxdiBridgeConst.reStirDI.numPrimaryInfiniteLightSamples,
-         g_RtxdiBridgeConst.reStirDI.numPrimaryEnvironmentSamples,
-         g_RtxdiBridgeConst.reStirDI.numPrimaryBrdfSamples,
-         g_RtxdiBridgeConst.reStirDI.brdfCutoff,
+        g_RtxdiBridgeConst.restirDI.initialSamplingParams.numPrimaryLocalLightSamples,
+        g_RtxdiBridgeConst.restirDI.initialSamplingParams.numPrimaryInfiniteLightSamples,
+        g_RtxdiBridgeConst.restirDI.initialSamplingParams.numPrimaryEnvironmentSamples,
+        g_RtxdiBridgeConst.restirDI.initialSamplingParams.numPrimaryBrdfSamples,
+        g_RtxdiBridgeConst.restirDI.initialSamplingParams.brdfCutoff,
         0.001f);
 
     RAB_LightSample lightSample;
-    RTXDI_Reservoir reservoir = RTXDI_SampleLightsForSurface(rng, tileRng, surface, sampleParams, runtimeParams, lightSample);
+    RTXDI_DIReservoir reservoir = RTXDI_SampleLightsForSurface(
+        rng, 
+        tileRng, 
+        surface, 
+        sampleParams, 
+        g_RtxdiBridgeConst.lightBufferParams,
+        g_RtxdiBridgeConst.restirDI.initialSamplingParams.localLightSamplingMode,
+#ifdef RTXDI_ENABLE_PRESAMPLING
+        g_RtxdiBridgeConst.localLightsRISBufferSegmentParams, 
+        g_RtxdiBridgeConst.environmentLightRISBufferSegmentParams,
+#if RTXDI_REGIR_MODE != RTXDI_REGIR_MODE_DISABLED
+        g_RtxdiBridgeConst.regir,
+#endif
+#endif
+        lightSample);
 
-    // useful for debugging!
     DebugContext debug;
     debug.Init(pixelPosition, g_Const.debug, u_FeedbackBuffer, u_DebugLinesBuffer, u_DebugDeltaPathTree, u_DeltaPathSearchStack, u_DebugVizOutput);
 
-    if (g_RtxdiBridgeConst.reStirDI.enableInitialVisibility && RTXDI_IsValidReservoir(reservoir))
+    if (g_RtxdiBridgeConst.restirDI.initialSamplingParams.enableInitialVisibility && RTXDI_IsValidDIReservoir(reservoir))
     {
         if (!RAB_GetConservativeVisibility(surface, lightSample))
         {
-            RTXDI_StoreVisibilityInReservoir(reservoir, 0, true);
+            RTXDI_StoreVisibilityInDIReservoir(reservoir, 0, true);
 #if ENABLE_DEBUG_RTXDI_VIZUALISATION
             if (debug.IsDebugPixel())
             {
@@ -76,16 +86,21 @@ void RayGen()
         }
 #endif
     }
-    {
-        
-        switch (g_Const.debug.debugViewType)
-        {
-        case (int)DebugViewType::ReSTIRDIInitialOutput:
-            float3 Li = lightSample.radiance * RTXDI_GetReservoirInvPdf(reservoir) / lightSample.solidAnglePdf;
-            debug.DrawDebugViz(pixelPosition, float4(Li, 1.0));
-            break;
-        }
-    }
+    
+    RTXDI_StoreDIReservoir(reservoir, g_RtxdiBridgeConst.restirDI.reservoirBufferParams, dispatchThreadID, g_RtxdiBridgeConst.restirDI.bufferIndices.initialSamplingOutputBufferIndex);
 
-    RTXDI_StoreReservoir(reservoir, runtimeParams, dispatchThreadID, g_RtxdiBridgeConst.reStirDI.initialOutputBufferIndex);
+   
+    switch (g_Const.debug.debugViewType)
+    {
+    case (int)DebugViewType::ReSTIRDIInitialOutput:
+        // Load the light stored in reservoir and sample it
+        uint lightIdx = RTXDI_GetDIReservoirLightIndex(reservoir);
+        float2 lightUV = RTXDI_GetDIReservoirSampleUV(reservoir);
+        RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIdx, false);
+        lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, lightUV);
+
+        float3 Li = lightSample.radiance * RTXDI_GetDIReservoirInvPdf(reservoir) / lightSample.solidAnglePdf;
+        debug.DrawDebugViz(pixelPosition, float4(Li, 1));
+        break;
+    }
 }

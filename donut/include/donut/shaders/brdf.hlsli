@@ -200,6 +200,7 @@ float3 ImportanceSampleGGX(float2 random, float roughness)
     return H;
 }
 
+#if 0 // old code, disabled to avoid confusion
 // Returns the sampled H vector in tangent space, assuming N = (0, 0, 1).
 // Ve is in the same tangent space.
 float3 ImportanceSampleGGX_VNDF(float2 random, float roughness, float3 Ve, float ndf_trim)
@@ -239,5 +240,6 @@ float ImportanceSampleGGX_VNDF_PDF(float roughness, float3 N, float3 V, float3 L
     float D = square(alpha) / (K_PI * square(square(NoH) * square(alpha) + (1 - square(NoH))));
     return (VoH > 0.0) ? D / (4.0 * VoH) : 0.0;
 }
+#endif
 
 #endif // BRDF_HLSLI

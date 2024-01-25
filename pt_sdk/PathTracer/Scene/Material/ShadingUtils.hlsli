@@ -13,7 +13,7 @@
 
 #include "../ShadingData.hlsli"
 #include "../SceneTypes.hlsli"
-#include "MaterialTypes.hlsli"
+//#include "MaterialTypes.hlsli"
 #include "../../Utils/Math/MathHelpers.hlsli"
 #include "../../Utils/Color/ColorHelpers.hlsli"
 
@@ -55,6 +55,19 @@ float getMetallic(float3 diffuse, float3 spec)
     return m;
 }
 
+#if 0
+
+/** Normal map type. This specifies the encoding of a normal map.
+*/
+enum class NormalMapType
+{
+    None,       ///< Normal map is not used.
+    RGB,        ///< Normal encoded in RGB channels in [0,1].
+    RG,         ///< Tangent space encoding in RG channels in [0,1].
+
+    Count // Must be last
+};
+
 /** Apply normal map.
     This function perturbs the shading normal using a local normal sampled from a normal map.
     \param[in,out] sd ShadingData struct that is updated.
@@ -86,6 +99,8 @@ void applyNormalMap(inout ShadingData shadingData, const NormalMapType type, con
     shadingData.T = normalize(tangentW.xyz - shadingData.N * dot(tangentW.xyz, shadingData.N));
     shadingData.B = cross(shadingData.N, shadingData.T) * tangentW.w;
 }
+
+#endif
 
 /** Computes an orthonormal tangent space based on the normal and given tangent.
     \param[in,out] sd ShadingData struct that is updated.
@@ -121,29 +136,21 @@ bool computeTangentSpace(inout ShadingData shadingData, const float4 tangentW)
     return valid;
 }
 
-/** Helper function to adjust the shading normal to reduce black pixels due to back-facing view direction.
+/** Adjusts the normal of the supplied shading frame to reduce black pixels due to back-facing view direction.
     Note: This breaks the reciprocity of the BSDF!
+    \param[in,out] shadingData - shading data at hit point; its shading tangent frame will be adjusted.
+    \param[in] vertexData - mesh vertex data at hit point.
 */
-void adjustShadingNormal(inout ShadingData shadingData, VertexData v)
+void adjustShadingNormal(inout ShadingData shadingData, VertexData vertexData, uniform bool recomputeTangentSpace)
 {
-    float3 Ng = shadingData.frontFacing ? v.faceNormalW : -v.faceNormalW;
-    float3 Ns = shadingData.N;
+    // Note: shadingData.V and Ng below always lie on the same side (as the front-facing flag is computed based on shadingData.V).
+    // The shading normal sf.N may lie on either side depending on whether we're shading the front or back.
+    // We orient Ns to lie on the same side as shadingData.V and Ng for the computations below.
+    // The final adjusted normal is oriented to lie on the same side as the original shading normal.
+    float3 Ng = shadingData.getOrientedFaceNormal();
+    float signN = dot(shadingData.N, Ng) >= 0.f ? 1.f : -1.f;
+    float3 Ns = signN * shadingData.N;
 
-#ifdef FALCOR_INTERNAL
-    // Algorithm from Appendix A.3 of https://arxiv.org/abs/1705.01263
-    // The specular reflection of the view direction is computed.
-    // If the reflection vector lies under the horizon, the shading normal is adjusted.
-    // This ensures that the majority of the reflection lobe lies on the same side,
-    // but it does not guarantee that all directions are valid in the general case.
-
-    // Specular reflection in shading normal
-    float3 R = reflect(-shadingData.V, Ns);
-    float a = dot(Ng, R);
-    if (a < 0) // Perturb normal
-    {
-        float b = max(0.001, dot(Ns, Ng));
-        shadingData.N = normalize(shadingData.V + normalize(R - Ns * a / b));
-#else
     // Blend the shading normal towards the geometric normal at grazing angles.
     // This is to avoid the view vector from becoming back-facing.
     const float kCosThetaThreshold = 0.1f;
@@ -151,10 +158,10 @@ void adjustShadingNormal(inout ShadingData shadingData, VertexData v)
     if (cosTheta <= kCosThetaThreshold)
     {
         float t = saturate(cosTheta * (1.f / kCosThetaThreshold));
-        shadingData.N = normalize(lerp(Ng, Ns, t));
-#endif
-        computeTangentSpace(shadingData, v.tangentW);
+        shadingData.N = signN * normalize(lerp(Ng, Ns, t));
     }
+    if (cosTheta <= kCosThetaThreshold || recomputeTangentSpace)
+        computeTangentSpace(shadingData, vertexData.tangentW);
 }
 
 #endif // __SHADING_UTILS_HLSLI__

@@ -34,24 +34,15 @@ static const float kMinCosTheta = 1e-6f;
 // representable floating-point constant that is less than 1. (https://www.pbr-book.org/3ed-2018/Sampling_and_Reconstruction/Sampling_Interface)
 static const float OneMinusEpsilon = 0x1.fffffep-1;
 
-// import Scene.ShadingData;
-// import Utils.Math.MathHelpers;
-// import Utils.Color.ColorHelpers;
-// import Rendering.Materials.Fresnel;
-// import Rendering.Materials.Microfacet;
-// __exported import Rendering.Materials.IBxDF;
+#define GGXSamplingNDF          0
+#define GGXSamplingVNDF         1
+#define GGXSamplingBVNDF        2
+
 
 // Enable support for delta reflection/transmission.
 #define EnableDeltaBSDF         1
 
-// Enable GGX sampling using the distribution of visible normals (VNDF) instead of classic NDF sampling.
-// This should be the default as it has lower variance, disable for testing only.
-// TODO: Make default when transmission with VNDF sampling is properly validated
-#define EnableVNDFSampling      1
-
-// Enable explicitly computing sampling weights using eval(wi, wo) / evalPdf(wi, wo).
-// This is for testing only, as many terms of the equation cancel out allowing to save on computation.
-#define ExplicitSampleWeights   0
+#define GGXSampling             GGXSamplingBVNDF
 
 // When deciding a lobe to sample, expand and reuse the random sample - losing at precision but gaining on performance when using costly LD sampler
 #define RecycleSelectSamples    1
@@ -319,10 +310,14 @@ struct SpecularReflectionMicrofacet // : IBxDF
         if (!hasLobe(LobeType::SpecularReflection)) return false;
 
         // Sample the GGX distribution to find a microfacet normal (half vector).
-#if EnableVNDFSampling
-        float3 h = sampleGGX_VNDF(alpha, wi, preGeneratedSample.xy, pdf);    // pdf = G1(wi) * D(h) * max(0,dot(wi,h)) / wi.z
+#if GGXSampling == GGXSamplingVNDF
+        float3 h = sampleGGX_VNDF(alpha, wi, preGeneratedSample.xy);    // pdf = G1(wi) * D(h) * max(0,dot(wi,h)) / wi.z
+#elif GGXSampling == GGXSamplingBVNDF
+        float3 h = sampleGGX_BVNDF(alpha, wi, preGeneratedSample.xy);
+#elif GGXSampling == GGXSamplingNDF
+        float3 h = sampleGGX_NDF(alpha, preGeneratedSample.xy);         // pdf = D(h) * h.z
 #else
-        float3 h = sampleGGX_NDF(alpha, preGeneratedSample.xy, pdf);         // pdf = D(h) * h.z
+        #error unknown sampling type
 #endif
 
         // Reflect the incident direction to find the outgoing direction.
@@ -330,29 +325,8 @@ struct SpecularReflectionMicrofacet // : IBxDF
         wo = 2.f * wiDotH * h - wi;
         if (wo.z < kMinCosTheta) return false;
 
-#if ExplicitSampleWeights
-        // For testing.
-        pdf = evalPdf(wi, wo);
+        pdf = evalPdf(wi, wo); // We used to have pdf returned as part of the sampleGGX_XXX functions but this made it easier to add bugs when changing due to code duplication in refraction cases
         weight = eval(wi, wo) / pdf;
-        lobe = (uint)LobeType::SpecularReflection;
-        return true;
-#endif
-
-#if SpecularMaskingFunction == SpecularMaskingFunctionSmithGGXSeparable
-        float G = evalMaskingSmithGGXSeparable(alpha, wi.z, wo.z);
-        float GOverG1wo = evalG1GGX(alpha * alpha, wo.z);
-#elif SpecularMaskingFunction == SpecularMaskingFunctionSmithGGXCorrelated
-        float G = evalMaskingSmithGGXCorrelated(alpha, wi.z, wo.z);
-        float GOverG1wo = G * (1.f + evalLambdaGGX(alpha * alpha, wi.z));
-#endif
-        float3 F = evalFresnelSchlick(albedo, 1.f, wiDotH);
-
-        pdf /= (4.f * wiDotH); // Jacobian of the reflection operator.
-#if EnableVNDFSampling
-        weight = F * GOverG1wo;
-#else
-        weight = F * G * wiDotH / (wi.z * h.z);
-#endif
         lobe = (uint)LobeType::SpecularReflection;
         return true;
     }
@@ -369,13 +343,17 @@ struct SpecularReflectionMicrofacet // : IBxDF
         if (!hasLobe(LobeType::SpecularReflection)) return 0.f;
 
         float3 h = normalize(wi + wo);
-        float wiDotH = dot(wi, h);
-#if EnableVNDFSampling
+
+#if GGXSampling == GGXSamplingVNDF
         float pdf = evalPdfGGX_VNDF(alpha, wi, h);
+#elif GGXSampling == GGXSamplingBVNDF
+        float pdf = evalPdfGGX_BVNDF(alpha, wi, h);
+#elif GGXSampling == GGXSamplingNDF
+        float pdf = evalPdfGGX_NDF(alpha, wi, h);
 #else
-        float pdf = evalPdfGGX_NDF(alpha, h.z);
+        #error unknown sampling type
 #endif
-        return pdf / (4.f * wiDotH);
+        return pdf;
     }
 };
 
@@ -484,10 +462,14 @@ struct SpecularReflectionTransmissionMicrofacet// : IBxDF
         if (!(hasReflection || hasTransmission)) return false;
 
         // Sample the GGX distribution of (visible) normals. This is our half vector.
-#if EnableVNDFSampling
-        float3 h = sampleGGX_VNDF(alpha, wi, preGeneratedSample.xy, pdf);    // pdf = G1(wi) * D(h) * max(0,dot(wi,h)) / wi.z
+#if GGXSampling == GGXSamplingVNDF
+        float3 h = sampleGGX_VNDF(alpha, wi, preGeneratedSample.xy);    // pdf = G1(wi) * D(h) * max(0,dot(wi,h)) / wi.z
+#elif GGXSampling == GGXSamplingBVNDF
+        float3 h = sampleGGX_BVNDF(alpha, wi, preGeneratedSample.xy);
+#elif GGXSampling == GGXSamplingNDF
+        float3 h = sampleGGX_NDF(alpha, preGeneratedSample.xy);         // pdf = D(h) * h.z
 #else
-        float3 h = sampleGGX_NDF(alpha, preGeneratedSample.xy, pdf);         // pdf = D(h) * h.z
+        #error unknown sampling type
 #endif
 
         // Reflect/refract the incident direction to find the outgoing direction.
@@ -516,48 +498,8 @@ struct SpecularReflectionTransmissionMicrofacet// : IBxDF
 
         lobe = isReflection ? (uint)LobeType::SpecularReflection : (uint)LobeType::SpecularTransmission;
 
-#if ExplicitSampleWeights
-        // For testing.
-        pdf = evalPdf(wi, wo);
-        weight = pdf > 0.f ? eval(wi, wo) / pdf : float3(0.f);
-        return true;
-#endif
-
-#if SpecularMaskingFunction == SpecularMaskingFunctionSmithGGXSeparable
-        float G = evalMaskingSmithGGXSeparable(alpha, wi.z, abs(wo.z));
-        float GOverG1wo = evalG1GGX(alpha * alpha, abs(wo.z));
-#elif SpecularMaskingFunction == SpecularMaskingFunctionSmithGGXCorrelated
-        float G = evalMaskingSmithGGXCorrelated(alpha, wi.z, abs(wo.z));
-        float GOverG1wo = G * (1.f + evalLambdaGGX(alpha * alpha, wi.z));
-#endif
-
-#if EnableVNDFSampling
-        weight = GOverG1wo;
-#else
-        weight = G * wiDotH / (wi.z * h.z);
-#endif
-
-        if (isReflection)
-        {
-            pdf /= 4.f * woDotH; // Jacobian of the reflection operator.
-        }
-        else
-        {
-            float sqrtDenom = woDotH + eta * wiDotH;
-            float denom = sqrtDenom * sqrtDenom;
-            pdf = (denom > 0.f) ? pdf * abs(woDotH) / denom : FLT_MAX; // Jacobian of the refraction operator.
-            weight *= transmissionAlbedo * eta * eta;
-        }
-
-        if (hasReflection && hasTransmission)
-        {
-            pdf *= isReflection ? F : 1.f - F;
-        }
-        else
-        {
-            weight *= isReflection ? F : 1.f - F;
-        }
-
+        pdf = evalPdf(wi, wo);  // <- this will have the correct Jacobian applied (for correct refraction pdf); We used to have pdf returned as part of the sampleGGX_XXX functions but this made it easier to add bugs when changing due to code duplication in refraction cases
+        weight = pdf > 0.f ? eval(wi, wo) / pdf : float3(0, 0, 0);
         return true;
     }
 
@@ -584,21 +526,27 @@ struct SpecularReflectionTransmissionMicrofacet// : IBxDF
 
         float F = evalFresnelDielectric(eta, wiDotH);
 
-#if EnableVNDFSampling
+#if GGXSampling == GGXSamplingVNDF
         float pdf = evalPdfGGX_VNDF(alpha, wi, h);
+#elif GGXSampling == GGXSamplingBVNDF
+        float pdf = evalPdfGGX_BVNDF(alpha, wi, h);
+#elif GGXSampling == GGXSamplingNDF
+        float pdf = evalPdfGGX_NDF(alpha, wi, h);
 #else
-        float pdf = evalPdfGGX_NDF(alpha, h.z);
+        #error unknown sampling type
 #endif
         if (isReflection)
-        {
-            pdf /= 4.f * woDotH; // Jacobian of the reflection operator.
+        {   // Jacobian of the reflection operator.
+            if (woDotH <= 0.f) return 0.f;
+            pdf *= wiDotH / woDotH; 
         }
         else
-        {
+        {   // Jacobian of the refraction operator.
             if (woDotH > 0.f) return 0.f;
+            pdf *= wiDotH * 4.0f;
             float sqrtDenom = woDotH + eta * wiDotH;
             float denom = sqrtDenom * sqrtDenom;
-            pdf = (denom > 0.f) ? pdf * abs(woDotH) / denom : FLT_MAX; // Jacobian of the refraction operator.
+            pdf *= abs(woDotH) / denom;
         }
 
         if (hasReflection && hasTransmission)
@@ -606,7 +554,7 @@ struct SpecularReflectionTransmissionMicrofacet// : IBxDF
             pdf *= isReflection ? F : 1.f - F;
         }
 
-        return pdf;
+        return clamp( pdf, 0, FLT_MAX );
     }
 };
 
@@ -956,7 +904,7 @@ struct FalcorBSDF // : IBxDF
         deltaReflection.transmission    = false;
         deltaTransmission.transmission  = true;
 
-        deltaReflection.Wo  = float3(-wi.x, -wi.y, wi.z);
+        deltaReflection.dir  = float3(-wi.x, -wi.y, wi.z);
 
         if (specularReflection.alpha == 0 && specularReflection.hasLobe(LobeType::DeltaReflection))
         {
@@ -988,7 +936,7 @@ struct FalcorBSDF // : IBxDF
                 {
                     float localProbability = pSpecularReflectionTransmission * (1.0-F);
                     float3 weight = specularReflectionTransmission.transmissionAlbedo * localProbability;
-                    deltaTransmission.Wo  = float3(-wi.x * specularReflectionTransmission.eta, -wi.y * specularReflectionTransmission.eta, -cosThetaT);
+                    deltaTransmission.dir  = float3(-wi.x * specularReflectionTransmission.eta, -wi.y * specularReflectionTransmission.eta, -cosThetaT);
                     deltaTransmission.thp = weight;
                     deltaTransmission.probability = localProbability;
                 }

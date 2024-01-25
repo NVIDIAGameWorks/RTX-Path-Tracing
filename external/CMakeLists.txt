@@ -13,16 +13,16 @@
 function(util_get_shader_profile_from_name FILE_NAME DXC_PROFILE)
     get_filename_component(EXTENSION ${FILE_NAME} EXT)
     if ("${EXTENSION}" STREQUAL ".cs.hlsl")
-        set(DXC_PROFILE "cs_6_2" PARENT_SCOPE)
+        set(DXC_PROFILE "cs" PARENT_SCOPE)
     endif()
     if ("${EXTENSION}" STREQUAL ".vs.hlsl")
-        set(DXC_PROFILE "vs_6_2" PARENT_SCOPE)
+        set(DXC_PROFILE "vs" PARENT_SCOPE)
     endif()
     if ("${EXTENSION}" STREQUAL ".gs.hlsl")
-        set(DXC_PROFILE "gs_6_2" PARENT_SCOPE)
+        set(DXC_PROFILE "gs" PARENT_SCOPE)
     endif()
     if ("${EXTENSION}" STREQUAL ".ps.hlsl")
-        set(DXC_PROFILE "ps_6_2" PARENT_SCOPE)
+        set(DXC_PROFILE "ps" PARENT_SCOPE)
     endif()
 endfunction()
 
@@ -119,3 +119,12 @@ donut_compile_shaders(
 set(RTXDI_SKIP_SHADER_VALIDATION ON CACHE STRING "Skip RTXDI shader validation")
 
 add_subdirectory("RTXDI/rtxdi-sdk")
+
+
+##########################################################################
+################################ cxxopts ###############################
+##########################################################################
+
+if (NOT TARGET cxxopts)
+    add_subdirectory("cxxopts")
+endif()

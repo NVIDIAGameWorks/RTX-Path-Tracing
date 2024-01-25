@@ -11,7 +11,9 @@
 #pragma once
 
 #include "PathTracer/Config.h"
+#include "SampleCommon.h"
 
+#include "CommandLine.h"
 #include "SampleUI.h"
 
 #include <donut/app/ApplicationBase.h>
@@ -32,6 +34,8 @@
 #include "SampleConstantBuffer.h"
 #include "AccumulationPass.h"
 #include "ExtendedScene.h"
+
+#include "Lighting/Distant/EnvMapBaker.h"
 
 // should we use donut::pt_sdk for all our path tracing stuff?
 
@@ -60,17 +64,18 @@ struct MaterialShadingProperties
 
 class Sample : public donut::app::ApplicationBase
 {
-    static constexpr uint32_t               c_PathTracerVariants   = 6; // see shaders.cfg and CreatePTPipeline for details on variants
+    static constexpr uint32_t c_PathTracerVariants   = 6; // see shaders.cfg and CreatePTPipeline for details on variants
 
 private:
     std::shared_ptr<donut::vfs::RootFileSystem> m_RootFS;
 
     // scene
-    std::vector<std::string>                        m_SceneFilesAvailable;
-    std::string                                     m_CurrentSceneName;
+    std::vector<std::string>                    m_SceneFilesAvailable;
+    std::string                                 m_CurrentSceneName;
     std::shared_ptr<donut::engine::ExtendedScene>   m_Scene;
-    double                                          m_SceneTime = 0.;
-    uint                                            m_SelectedCameraIndex = 0;  // 0 is first person camera, the rest (if any) are scene cameras
+    double                                      m_SceneTime = 0.;           // if m_ui.LoopLongestAnimation then it loops with longest animation
+    uint                                        m_SelectedCameraIndex = 0;  // 0 is first person camera, the rest (if any) are scene cameras
+
 
     // device setup
     std::shared_ptr<donut::engine::ShaderFactory> m_ShaderFactory;
@@ -86,13 +91,17 @@ private:
     // rendering
     std::unique_ptr<RenderTargets>              m_RenderTargets;
     std::vector <std::shared_ptr<donut::engine::Light>> m_Lights;
-    std::unique_ptr<ToneMappingPass>      m_ToneMappingPass;
+    std::unique_ptr<ToneMappingPass>            m_ToneMappingPass;
     std::shared_ptr<donut::render::InstancedOpaqueDrawStrategy> m_OpaqueDrawStrategy;
     std::shared_ptr<donut::render::TransparentDrawStrategy> m_TransparentDrawStrategy;
-    std::shared_ptr<EnvironmentMap>             m_EnvironmentMap;
     nvrhi::BufferHandle                         m_ConstantBuffer;
     nvrhi::BufferHandle                         m_SubInstanceBuffer;            // per-instance-geometry data, indexed with (InstanceID()+GeometryIndex())
     uint                                        m_SubInstanceCount;
+
+    // lighting
+    std::string                                 m_EnvMapLocalPath;
+    std::shared_ptr<EnvMapBaker>                m_EnvMapBaker;
+    EnvMapSceneParams                           m_EnvMapSceneParams;
 
 #if USE_PRECOMPUTED_SOBOL_BUFFER
     nvrhi::BufferHandle                         m_PrecomputedSobolBuffer;
@@ -150,6 +159,9 @@ private:
     // all UI-tweakable settings are here
     SampleUIData &                              m_ui;
 
+    // The command line settings are here
+    CommandLineOptions                          m_cmdLine;
+
     // path tracing
     nvrhi::ShaderLibraryHandle                  m_PTShaderLibrary[c_PathTracerVariants];
     nvrhi::rt::PipelineHandle                   m_PTPipeline[c_PathTracerVariants];
@@ -183,7 +195,7 @@ private:
 public:
     using ApplicationBase::ApplicationBase;
 
-    Sample(donut::app::DeviceManager* deviceManager, SampleUIData& ui);
+    Sample(donut::app::DeviceManager* deviceManager, CommandLineOptions& cmdLine, SampleUIData& ui);
 
     //std::shared_ptr<donut::vfs::IFileSystem> GetRootFs() const                      { return m_RootFS; }
     std::shared_ptr<donut::engine::ShaderFactory> GetShaderFactory() const          { return m_ShaderFactory; }
@@ -235,13 +247,15 @@ public:
     void                                    CreateRenderPasses(bool& exposureResetRequired);
     void                                    PreUpdatePathTracing(bool resetAccum, nvrhi::CommandListHandle commandList);
     void                                    PostUpdatePathTracing();
-    void                                    UpdatePathTracerConstants( PathTracerConstants & constants );
-    void                                    RtxdiBeginFrame(nvrhi::IFramebuffer* framebuffer, PathTracerCameraData cameraData, bool needNewPasses, uint2 renderDims);
+    void                                    UpdatePathTracerConstants( PathTracerConstants & constants, const PathTracerCameraData & cameraData );
+    void                                    RtxdiSetupFrame(nvrhi::IFramebuffer* framebuffer, PathTracerCameraData cameraData, uint2 renderDims);
 
     void                                    Denoise(nvrhi::IFramebuffer* framebuffer);
     void                                    PathTrace(nvrhi::IFramebuffer* framebuffer, const SampleConstants & constants);
     void                                    Render(nvrhi::IFramebuffer* framebuffer) override;
     void                                    PostProcessAA(nvrhi::IFramebuffer* framebuffer);
+
+    void                                    UpdateLighting(nvrhi::CommandListHandle commandList, bool & needNewBindings);
 
     donut::math::float2                     ComputeCameraJitter( uint frameIndex );
 
@@ -253,8 +267,13 @@ public:
 
     void                                    ResetSceneTime( ) { m_SceneTime = 0.; }
 
+    bool                                    IsEnvMapLoaded() const { return true; } // with the new EnvMapBaker it's always present (just black)
+
+    const std::shared_ptr<EnvMapBaker> &    GetEnvMapBaker() const { return m_EnvMapBaker; }
+
 private:
     void                                    UpdateCameraFromScene( const std::shared_ptr<donut::engine::PerspectiveCamera> & sceneCamera );
     void                                    UpdateViews( nvrhi::IFramebuffer* framebuffer );
     void                                    DenoisedScreenshot( nvrhi::ITexture * framebufferTexture ) const;
 };
+

@@ -784,7 +784,8 @@ std::shared_ptr<SceneGraphNode> SceneGraph::Attach(const std::shared_ptr<SceneGr
             {
                 for (auto& joint : skinnedInstance->joints)
                 {
-                    auto newNode = nodeMap[joint.node.get()];
+                    auto jointNode = joint.node.lock();
+                    auto newNode = nodeMap[jointNode.get()];
                     if (newNode)
                     {
                         joint.node = newNode;

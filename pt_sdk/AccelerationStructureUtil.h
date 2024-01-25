@@ -91,7 +91,7 @@ namespace bvh
         }
 
         // don't compact acceleration structures that are built per frame
-        if (mesh.skinPrototype != nullptr)
+        if (mesh.skinPrototype.use_count() != 0)
         {
             blasDesc.buildFlags = nvrhi::rt::AccelStructBuildFlags::PreferFastBuild;
         }

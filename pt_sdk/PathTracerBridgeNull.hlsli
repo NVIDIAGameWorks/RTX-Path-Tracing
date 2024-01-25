@@ -86,24 +86,6 @@ HomogeneousVolumeData Bridge::loadHomogeneousVolumeData(const uint materialID)
     return ptVolume;
 }
 
-uint Bridge::getAnalyticLightCount()
-{
-    return 1;
-}
-
-bool Bridge::sampleAnalyticLight(const float3 shadingPosW, uint lightIndex, inout SampleGenerator sampleGenerator, out AnalyticLightSample ls)
-{
-    AnalyticLightData light = AnalyticLightData::make();
-    light.posW              = float3(0,0,0);
-    light.dirW              = float3(0,1,0);
-    light.intensity         = 1.f;
-    light.type              = (uint)AnalyticLightType::Point;
-    light.openingAngle      = 0.1f;
-    light.cosOpeningAngle   = cos(0.1f);
-    light.penumbraAngle     = 0.1f;
-    return samplePointLight(shadingPosW, light, ls);
-}
-
 float3 Bridge::computeMotionVector( float3 posW, float3 prevPosW )
 {
     return float3(0, 0, 0);
@@ -137,38 +119,19 @@ void Bridge::StoreSecondarySurfacePositionAndNormal(uint2 pixelCoordinate, float
 {
 }
 
-bool Bridge::EnvMap::HasEnvMap()
+EnvMap Bridge::CreateEnvMap()
+{
+    EnvMap ret; return ret;
+}
+
+EnvMapSampler Bridge::CreateEnvMapImportanceSampler()
+{
+    EnvMapSampler ret; return ret;
+}
+    
+bool Bridge::HasEnvMap()
 {
     return false;
 }
-
-float3 Bridge::EnvMap::Eval(float3 dir)
-{
-    return 0;
-}
-
-float Bridge::EnvMap::EvalPdf(float3 dir)
-{
-    return 0;
-}
-
-EnvMapSample Bridge::EnvMap::Sample(const float2 rnd)
-{
-    EnvMapSample s;
-    s.dir = 0;
-    s.pdf = 0;
-    s.Le = 0;
-    return s;
-}
-
-EnvMapSample Bridge::EnvMap::SamplePresampled(const float rnd)
-{
-    EnvMapSample s;
-    s.dir = 0;
-    s.pdf = 0;
-    s.Le = 0;
-    return s;
-}
-
 
 #endif // __BRIDGE_NULL_HLSLI__

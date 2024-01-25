@@ -329,6 +329,21 @@ bool DeviceManager::CreateWindowDeviceAndSwapChain(const DeviceCreationParameter
     return true;
 }
 
+bool DeviceManager::CreateDeviceAndSwapChain(const DeviceCreationParameters& params)
+{
+    m_RequestedVSync = params.vsyncEnabled;
+
+    m_DeviceParams.backBufferWidth = params.backBufferWidth;
+    m_DeviceParams.backBufferHeight = params.backBufferHeight;
+
+    if (!CreateDeviceAndSwapChain())
+        return false;
+
+    UpdateWindowSize();
+
+    return true;
+}
+
 void DeviceManager::AddRenderPassToFront(IRenderPass *pRenderPass)
 {
     m_vRenderPasses.remove(pRenderPass);
@@ -423,7 +438,7 @@ void DeviceManager::RunMessageLoop()
 {
     m_PreviousFrameTimestamp = glfwGetTime();
 
-    while(!glfwWindowShouldClose(m_Window))
+    while(!m_Window || !glfwWindowShouldClose(m_Window))
     {
 
         if (m_callbacks.beforeFrame != nullptr) m_callbacks.beforeFrame(*this);
@@ -479,20 +494,29 @@ void DeviceManager::UpdateWindowSize()
 {
     int width;
     int height;
-    glfwGetWindowSize(m_Window, &width, &height);
-
-    if (width == 0 || height == 0)
+    if (m_Window)
     {
-        // window is minimized
-        m_windowVisible = false;
-        return;
+        glfwGetWindowSize(m_Window, &width, &height);
+
+        if (width == 0 || height == 0)
+        {
+            // window is minimized
+            m_windowVisible = false;
+            return;
+        }
+    }
+    else
+    {
+        width = m_DeviceParams.backBufferWidth;
+        height = m_DeviceParams.backBufferHeight;
     }
 
     m_windowVisible = true;
 
     if (int(m_DeviceParams.backBufferWidth) != width || 
         int(m_DeviceParams.backBufferHeight) != height ||
-        (m_DeviceParams.vsyncEnabled != m_RequestedVSync && GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN))
+        (m_DeviceParams.vsyncEnabled != m_RequestedVSync && GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN) ||
+        GetBackBufferCount() != m_SwapChainFramebuffers.size())
     {
         // window is not minimized, and the size has changed
 
@@ -504,6 +528,8 @@ void DeviceManager::UpdateWindowSize()
 
         ResizeSwapChain();
         BackBufferResized();
+
+        assert(GetBackBufferCount() == m_SwapChainFramebuffers.size());
     }
 
     m_DeviceParams.vsyncEnabled = m_RequestedVSync;
@@ -708,6 +734,9 @@ nvrhi::IFramebuffer* donut::app::DeviceManager::GetFramebuffer(uint32_t index)
 
 void DeviceManager::SetWindowTitle(const char* title)
 {
+    if (!m_Window)
+        return;
+
     assert(title);
     if (m_WindowTitle == title)
         return;

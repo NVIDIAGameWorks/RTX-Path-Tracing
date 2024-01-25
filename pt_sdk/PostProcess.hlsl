@@ -14,9 +14,22 @@
 #define VIEWZ_SKY_MARKER        FLT_MAX             // for 16bit use HLF_MAX but make sure it's bigger than commonSettings.denoisingRange in NRD!
 
 #if defined(BLEND_DEBUG_BUFFER)
+#include "PathTracer/Sampling.hlsli"
+#include "PathTracer/Utils.hlsli"
 Texture2D<float4>                       t_DebugVizOutput    : register(t5);
 float4 main( in float4 pos : SV_Position, in float2 uv : UV ) : SV_Target0
 {
+#if 0 // example of full screen test for something! (in this case testing the precision of Encode_Oct/Decode_Oct with fp16)
+    SampleGenerator sampleGenerator = SampleGenerator::make( uint2(pos.xy), 0, 0 );
+    float3 bah = sampleNext3D(sampleGenerator);
+    bah = normalize(bah);
+    float2 enc = Encode_Oct(bah);
+    uint encui = PackTwoFp32ToFp16( enc.x, enc.y );
+    UnpackTwoFp32ToFp16( encui, enc.x, enc.y );
+    float3 bahd = Decode_Oct(enc);
+    return float4( abs(bah-bahd) * float3(1, 100, 10000), 1 );
+#endif
+
     return t_DebugVizOutput[uint2(pos.xy)].rgba;
 }
 #endif
@@ -25,6 +38,7 @@ float4 main( in float4 pos : SV_Position, in float2 uv : UV ) : SV_Target0
 
 #if defined(STABLE_PLANES_DEBUG_VIZ)
 
+#include "ShaderResourceBindings.hlsli"
 #include "PathTracerBridgeDonut.hlsli"
 #include "PathTracer/PathTracer.hlsli"
 #include "PathTracer/Utils.hlsli"
@@ -53,6 +67,7 @@ void main( uint3 dispatchThreadID : SV_DispatchThreadID )
 
 #if defined(DENOISER_PREPARE_INPUTS)
 
+#include "ShaderResourceBindings.hlsli"
 #include "PathTracerBridgeDonut.hlsli"
 #include "PathTracer/PathTracer.hlsli"
 #include "NRD/DenoiserNRD.hlsli"
@@ -124,7 +139,7 @@ void main( uint3 dispatchThreadID : SV_DispatchThreadID )
         StablePlane sp = stablePlanes.LoadStablePlane(pixelPos, stablePlaneIndex);
 
         const HitInfo hit = HitInfo(sp.PackedHitInfo);
-        bool hitSurface = hit.isValid() && hit.getType() == HitType::Triangle;
+        bool hitSurface = hit.isValid(); // && hit.getType() == HitType::Triangle;
         if( hitSurface ) // skip sky!
         {
             hasSurface = true;
@@ -258,12 +273,13 @@ void main( uint3 dispatchThreadID : SV_DispatchThreadID )
 
 #pragma pack_matrix(row_major)
 #include <donut/shaders/packing.hlsli>
+#include <donut/shaders/vulkan.hlsli>
 #include "SampleConstantBuffer.h"
 #include "NRD/DenoiserNRD.hlsli"
 #include "PathTracer/StablePlanes.hlsli"
 
 ConstantBuffer<SampleConstants>         g_Const             : register(b0);
-ConstantBuffer<SampleMiniConstants>     g_MiniConst         : register(b1);
+VK_PUSH_CONSTANT ConstantBuffer<SampleMiniConstants>     g_MiniConst         : register(b1);
 
 RWTexture2D<float4>     u_InputOutput                           : register(u0);
 RWTexture2D<float4>     u_DebugVizOutput                        : register(u1);

@@ -103,7 +103,7 @@ namespace donut::engine
 
     struct SkinnedMeshJoint
     {
-        std::shared_ptr<SceneGraphNode> node;
+        std::weak_ptr<SceneGraphNode> node;
         dm::float4x4 inverseBindMatrix;
     };
 

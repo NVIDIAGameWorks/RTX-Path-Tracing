@@ -16,6 +16,42 @@
 #include "Utils/Math/MathConstants.hlsli"
 #include "Utils/Math/Quaternion.hlsli"
 
+// Computes new ray origin based on hit position to avoid self-intersections. 
+// The function assumes that the hit position has been computed by barycentric interpolation, and not from the ray t which is less accurate.
+// Described in Ray Tracing Gems, Chapter 6, "A Fast and Robust Method for Avoiding Self-Intersection" by Carsten Wächter and Nikolaus Binder.
+float3 ComputeRayOrigin(float3 worldPosition, float3 faceNormal)  // expects triangle faceNormal pointing towards the intended ray direction
+{
+    const float origin = 1.f / 16.f;
+    const float fScale = 3.f / 65536.f;
+    const float iScale = 3 * 256.f;
+
+    // Per-component integer offset to bit representation of fp32 position.
+    int3 iOff = int3(faceNormal * iScale);
+    float3 iPos = asfloat(asint(worldPosition) + select(worldPosition < 0.f, -iOff, iOff));
+
+    // Select per-component between small fixed offset or above variable offset depending on distance to origin.
+    float3 fOff = faceNormal * fScale;
+    return select(abs(worldPosition) < origin, worldPosition + fOff, iPos);
+}
+
+// Same as ComputeRayOrigin, except automatically aligning faceNormal to direction
+float3 ComputeRayOrigin(float3 worldPosition, float3 faceNormal, float3 rayDirection)  // expects triangle faceNormal pointing towards the intended ray direction
+{
+    faceNormal = dot(faceNormal, rayDirection) >= 0 ? faceNormal : -faceNormal;
+    return ComputeRayOrigin(worldPosition, faceNormal);
+}
+
+// When applying direct lighting to opaque low poly geometry, there will be areas where triangle face is facing away from the light
+// source, but interpolated geometry normal (and normalmapped normal...) is facing towards thus still receiving light, resulting in 
+// sharp triangle-shaped shadows when using shadow rays.
+// Easiest (and fairly robust) solution to this is to apply NdotL-based light falloff at low grazing angles.
+float ComputeLowGrazingAngleFalloff( float3 lightDirection, float3 interpolatedGeometryNormal, float falloffFrom, float falloffRange )
+{
+    // This could be optimized to dot()*a+b but then it's less readable
+    return saturate( ( dot( lightDirection, interpolatedGeometryNormal) - falloffFrom ) / falloffRange ); // one could use, like in NRD Sample, saturate( ( smoothstep( 0.03, 0.1, dot( ray.Direction, shadingData.vertexN ) ) ) ); // also sqrt gives a visually smoother transition
+}
+
+
 float BalanceHeuristic(float nf, float fPdf, float ng, float gPdf) 
 {
     float f = nf * fPdf;

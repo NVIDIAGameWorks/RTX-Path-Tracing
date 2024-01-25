@@ -25,11 +25,11 @@ struct DeltaLobe
 {
     float3  thp;                // how much light goes through the lobe with respect to the surface Wi and this->Wo; will be 0.xxx if probability == 0
     float   probability;        // chance this lobe is sampled with current BSDF importance sampling; will be 0 if disabled; 
-    float3  Wo;                 // refracted or reflected direction in world space when returned from StandardBSDF (tangent space when returned from FalcorBSDF); will be 0.xxx if probability == 0
+    float3  dir;                // refracted or reflected direction in world space when returned from StandardBSDF (tangent space when returned from FalcorBSDF); will be 0.xxx if probability == 0; this is where the ray "will go" in unidirectional path tracing
     int     transmission;       // 1 when transmission lobe, 0 when reflection; even though it can be inferred from Wo, this avoids testing Wo vs triangle normal and potential precision issues
 
 #if !defined(__cplusplus) // shader only!
-    static DeltaLobe make()     { DeltaLobe ret; ret.thp = 0.xxx; ret.Wo = 0.xxx; ret.transmission = false; ret.probability = 0; return ret; }
+    static DeltaLobe make()     { DeltaLobe ret; ret.thp = 0.xxx; ret.dir = 0.xxx; ret.transmission = false; ret.probability = 0; return ret; }
 #endif
 };
 

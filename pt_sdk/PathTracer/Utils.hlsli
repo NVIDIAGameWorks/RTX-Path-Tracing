@@ -21,10 +21,16 @@ void    UnpackTwoFp32ToFp16(uint3 packed, out float3 a, out float3 b)       { a 
 uint    PackTwoFp32ToFp16(float  a, float  b)                               { return (f32tof16(clamp(a, -HLF_MAX, HLF_MAX)) << 16) | f32tof16(clamp(b, -HLF_MAX, HLF_MAX)); }
 void    UnpackTwoFp32ToFp16(uint packed, out float a, out float b)          { a = f16tof32(packed >> 16); b = f16tof32(packed & 0xFFFF); }
 
+// Returns a relative luminance of an input linear RGB color in the ITU-R BT.709 color space
+inline float Luminance(float3 rgb)
+{
+    return dot(rgb, float3(0.2126f, 0.7152f, 0.0722f));
+}
+
 // Clamp .rgb by luminance
 float3 LuminanceClamp(float3 signalIn, const float luminanceThreshold)
 {
-    float lumSig = luminance( signalIn );
+    float lumSig = Luminance( signalIn );
     if( lumSig > luminanceThreshold )
         signalIn = signalIn / lumSig * luminanceThreshold;
     return signalIn;
@@ -50,7 +56,7 @@ float3 GradientHeatMap( float greyValue )
 // Octahedral normal encoding/decoding - see https://knarkowicz.wordpress.com/2014/04/16/octahedron-normal-vector-encoding/
 float2 OctWrap(float2 v)
 {
-	return (1.0 - abs(v.yx)) * (v.xy >= 0.0 ? 1.0 : -1.0);
+	return (1.0 - abs(v.yx)) * select(v.xy >= 0.0, 1.0, -1.0);
 }
 float2 Encode_Oct(float3 n)
 {
@@ -66,9 +72,75 @@ float3 Decode_Oct(float2 f)
 	// https://twitter.com/Stubbesaurus/status/937994790553227264
 	float3 n = float3(f.x, f.y, 1.0 - abs(f.x) - abs(f.y));
 	float t = saturate(-n.z);
-	n.xy += n.xy >= 0.0 ? -t : t;
+	n.xy += select(n.xy >= 0.0, -t, t);
 	return normalize(n);
 }
+
+// http://www.pbr-book.org/3ed-2018/Monte_Carlo_Integration/2D_Sampling_with_Multidimensional_Transformations.html
+float3 SampleSphereUniform( const float2 u )
+{
+    float z = 1.0 - 2.0 * u[0];
+    float r = sqrt( max( 0.0, 1.0 - z * z) );
+    float phi = 2 * M_PI * u[1];
+    return float3(r * cos(phi), r * sin(phi), z);
+}
+float SampleSphereUniformPDF( )
+{
+    return 1.0 / (4.0 * M_PI);
+}
+
+// *************************************************************************************************************************************
+// Some of the noise and LD sampling functions in this file originate from:
+// https://github.com/GameTechDev/XeGTAO/blob/master/Source/Rendering/Shaders/vaNoise.hlsl, 
+// Note: this will turn 0 into 0! if that's a problem do Hash32( x+constant ) - HashCombine does something similar already
+uint Hash32( uint x )
+{
+// This little gem is from https://nullprogram.com/blog/2018/07/31/, "Prospecting for Hash Functions" by Chris Wellons
+// There's also the inverse for the lowbias32, and a 64bit version.
+#if 1   // faster, higher bias
+    // exact bias: 0.17353355999581582
+    // uint32_t lowbias32(uint32_t x)
+    // {
+        x ^= x >> 16;
+        x *= 0x7feb352du;
+        x ^= x >> 15;
+        x *= 0x846ca68bu;
+        x ^= x >> 16;
+        return x;
+    //}
+#else // slower, lower bias
+// exact bias: 0.020888578919738908
+// uint32_t triple32(uint32_t x)
+// {
+    x ^= x >> 17;
+    x *= uint(0xed5ad4bb);
+    x ^= x >> 11;
+    x *= uint(0xac4c1b51);
+    x ^= x >> 15;
+    x *= uint(0x31848bab);
+    x ^= x >> 14;
+    return x;
+//}
+#endif
+}
+// popular hash_combine (boost, etc.)
+uint Hash32Combine( const uint seed, const uint value )
+{
+     return seed ^ (Hash32(value) + 0x9e3779b9 + (seed << 6) + (seed >> 2));       
+}
+// same as Hash32Combine, just without re-hashing of input value
+uint Hash32CombineSimple( const uint seed, const uint value )
+{
+    return seed ^ (value + (seed << 6) + (seed >> 2));
+}
+// converting the whole 32bit uint to [0, 1)
+float Hash32ToFloat(uint hash)
+{ 
+    // a.) converting the upper 24bits to [0, 1) because the higher bits have better distribution in some hash algorithms (like sobol)
+    // b.) this is a good way to guarantee [0, 1) since float32 mantissa is only 23 bits
+    return (hash>>8) / float(1 << 24); // same as '/ 16777216.0'
+}
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // (R11G11B10 conversion code below taken from Miniengine's PixelPacking_R11G11B10.hlsli,  

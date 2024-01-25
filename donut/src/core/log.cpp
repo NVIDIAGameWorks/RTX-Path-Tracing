@@ -25,6 +25,7 @@
 #include <stdarg.h>
 #include <iterator>
 #include <mutex>
+#include <iostream>
 #if _WIN32
 #include <Windows.h>
 #endif
@@ -36,6 +37,8 @@ namespace donut::log
     static std::string g_ErrorMessageCaption = "Error";
 
     static std::mutex g_LogMutex;
+
+    static bool g_EnablePopups = true;
     
     void DefaultCallback(Severity severity, const char* message)
     {
@@ -54,6 +57,7 @@ namespace donut::log
         char buf[g_MessageBufferSize];
         snprintf(buf, std::size(buf), "%s: %s", severityText, message);
 
+        if (IsDebuggerPresent())
         {
             std::lock_guard<std::mutex> lockGuard(g_LogMutex);
 
@@ -61,13 +65,36 @@ namespace donut::log
             OutputDebugStringA(buf);
             OutputDebugStringA("\n");
 
-            if (severity == Severity::Error || severity == Severity::Fatal)
-            {
-                MessageBoxA(0, buf, g_ErrorMessageCaption.c_str(), MB_ICONERROR);
-            }
+			if (g_EnablePopups)
+			{
+            	if (severity == Severity::Error || severity == Severity::Fatal)
+            	{
+                	MessageBoxA(0, buf, g_ErrorMessageCaption.c_str(), MB_ICONERROR);
+            	}
+			}
 #else
             fprintf(stderr, "%s\n", buf);
 #endif
+        }
+        else
+        {
+            switch (severity)
+            {
+                case Severity::Debug:
+                case Severity::Info:
+                case Severity::Warning:
+                {
+                    std::cout << buf << std::endl;
+                    break;
+                }
+                case Severity::Error:
+                case Severity::Fatal:
+                default:
+                {
+                    std::cerr << buf << std::endl;
+                    break;
+                }
+            }
         }
 
         if (severity == Severity::Fatal)
@@ -90,6 +117,11 @@ namespace donut::log
     void SetCallback(Callback func)
     {
         g_Callback = func;
+    }
+
+    void DisablePopups()
+    {
+        g_EnablePopups = false;
     }
 
 	Callback GetCallback()

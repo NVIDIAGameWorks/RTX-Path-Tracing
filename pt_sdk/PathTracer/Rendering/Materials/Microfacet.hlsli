@@ -44,9 +44,10 @@ float evalNdfGGX(float alpha, float cosTheta)
     \param[in] cosTheta Dot product between shading normal and half vector, in positive hemisphere.
     \return D(h) * cosTheta
 */
-float evalPdfGGX_NDF(float alpha, float cosTheta)
+float evalPdfGGX_NDF(float alpha, float3 wi, float3 h)
 {
-    return evalNdfGGX(alpha, cosTheta) * cosTheta;
+    float cosTheta = h.z;
+    return evalNdfGGX(alpha, cosTheta) * cosTheta / (max(0.f, dot(wi, h)) * 4.0f);  // "1.0 / max(0.f, dot(wi, h)) * 4.0f" term used to be applied externally
 }
 
 /** Samples the GGX (Trowbridge-Reitz) normal distribution function (D) using Walter et al. 2007's method.
@@ -59,7 +60,7 @@ float evalPdfGGX_NDF(float alpha, float cosTheta)
     \param[out] pdf Sampling probability.
     \return Sampled half vector in local space.
 */
-float3 sampleGGX_NDF(float alpha, float2 u, out float pdf)
+float3 sampleGGX_NDF(float alpha, float2 u)
 {
     float alphaSqr = alpha * alpha;
     float phi = u.y * (2 * M_PI);
@@ -67,7 +68,6 @@ float3 sampleGGX_NDF(float alpha, float2 u, out float pdf)
     float cosTheta = 1 / sqrt(1 + tanThetaSqr);
     float r = sqrt(max(1 - cosTheta * cosTheta, 0));
 
-    pdf = evalPdfGGX_NDF(alpha, cosTheta);
     return float3(cos(phi) * r, sin(phi) * r, cosTheta);
 }
 
@@ -85,8 +85,48 @@ float evalPdfGGX_VNDF(float alpha, float3 wi, float3 h)
 {
     float G1 = evalG1GGX(alpha * alpha, wi.z);
     float D = evalNdfGGX(alpha, h.z);
+    
+#if 0   // old code; "1.0 / max(0.f, dot(wi, h)) * 4.0f" term used to be applied externally
     return G1 * D * max(0.f, dot(wi, h)) / wi.z;
+#else
+    return G1 * D * max(0.f, dot(wi, h)) / (wi.z * max(0.f, dot(wi, h)) * 4.0f);   // <- corrected?
+#endif
 }
+
+/** Evaluates the PDF for sampling the GGX distribution of >bounded< visible normals (BVNDF).
+    See https://gpuopen.com/download/publications/Bounded_VNDF_Sampling_for_Smith-GGX_Reflections.pdf, 
+    Adapted from listing 2.
+
+    \param[in] alpha GGX width parameter (should be clamped to small epsilon beforehand).
+    \param[in] wi Incident direction in local space, in the positive hemisphere.
+    \param[in] h Half vector in local space, in the positive hemisphere.
+    \return pdf
+*/
+float evalPdfGGX_BVNDF( float _alpha, float3 i, float3 m ) 
+{
+    float2 alpha = _alpha.xx;                               // TODO: add support for anisotropic roughness
+    //float3 m = normalize( i + o );
+    float ndf = evalNdfGGX(_alpha, m.z); //D(m , alpha);    // TODO: add support for anisotropic roughness
+    float2 ai = alpha * i.xy ;
+    float len2 = dot(ai, ai );
+    float t = sqrt ( len2 + i.z * i.z );
+#if 0   // our i.z is always in positive hemisphere
+    if ( i.z >= 0.0f )
+#endif
+    {
+        float a = saturate(min(alpha.x, alpha.y)); // Eq. 6
+        float s = 1.0f + length(float2(i.x, i.y)); // Omit sgn for a <=1
+        float a2 = a * a;
+        float s2 = s * s;
+        float k = (1.0f - a2) * s2 / (s2 + a2 * i.z * i.z); // Eq. 5
+        return ndf / (2.0f * (k * i.z + t)); // Eq. 8 * || dm/do ||
+    }
+#if 0   // our i.z is always in positive hemisphere
+    // Numerically stable form of the previous PDF for i.z < 0
+    return ndf * ( t - i.z ) / (2.0f * len2 ) ; // = Eq. 7 * || dm/do ||
+#endif
+}
+
 
 /** Samples the GGX (Trowbridge-Reitz) using the distribution of visible normals (VNDF).
     The GGX VDNF yields significant variance reduction compared to sampling of the GGX NDF.
@@ -95,10 +135,10 @@ float evalPdfGGX_VNDF(float alpha, float3 wi, float3 h)
     \param[in] alpha Isotropic GGX width parameter (should be clamped to small epsilon beforehand).
     \param[in] wi Incident direction in local space, in the positive hemisphere.
     \param[in] u Uniform random number (2D).
-    \param[out] pdf Sampling probability.
+    // \param[out] pdf Sampling probability. - removed for simplicity / removing code duplication; use 'evalPdfGGX_VNDF', compiler is smart enough to optimize things out
     \return Sampled half vector in local space, in the positive hemisphere.
 */
-float3 sampleGGX_VNDF(float alpha, float3 wi, float2 u, out float pdf)
+float3 sampleGGX_VNDF(float alpha, float3 wi, float2 u)
 {
     float alpha_x = alpha, alpha_y = alpha;
 
@@ -129,8 +169,41 @@ float3 sampleGGX_VNDF(float alpha, float3 wi, float2 u, out float pdf)
     // Transform the normal back to the ellipsoid configuration. This is our half vector.
     float3 h = normalize(float3(alpha_x * Nh.x, alpha_y * Nh.y, max(0.f, Nh.z)));
 
-    pdf = evalPdfGGX_VNDF(alpha, wi, h);
+    // pdf = evalPdfGGX_VNDF(alpha, wi, h);
     return h;
+}
+
+/** Samples the GGX using the >bounded< distribution of visible normals (VNDF).
+    See https://gpuopen.com/download/publications/Bounded_VNDF_Sampling_for_Smith-GGX_Reflections.pdf,
+    Adapted from listing 1.
+
+    \param[in] alpha Isotropic GGX width parameter (should be clamped to small epsilon beforehand).
+    \param[in] wi Incident direction in local space, in the positive hemisphere.
+    \param[in] u Uniform random number (2D).
+    \return Sampled half vector in local space, in the positive hemisphere.
+*/
+float3 sampleGGX_BVNDF(float _alpha, float3 i, float2 rand)
+{
+    float2 alpha = _alpha.xx;                               // TODO: add support for anisotropic roughness
+    
+    float3 i_std = normalize ( float3 ( i.xy * alpha, i.z ) ) ;
+    // Sample a spherical cap
+    float phi = 2.0f * M_PI * rand.x ;
+    float a = saturate( min( alpha.x, alpha.y ) ); // Eq. 6
+    float s = 1.0f + length( float2( i.x, i.y ) ); // Omit sgn for a <=1
+    float a2 = a * a; float s2 = s * s;
+    float k = (1.0f - a2) * s2 / (s2 + a2 * i.z * i.z); // Eq. 5
+    float b = i.z > 0 ? k * i_std.z : i_std.z;
+    float z = mad (1.0f - rand.y , 1.0f + b, -b );
+    float sinTheta = sqrt( saturate( 1.0f - z * z ) );
+    float3 o_std = float3( sinTheta * cos( phi ), sinTheta * sin( phi ), z );
+    // Compute the microfacet normal m
+    float3 m_std = i_std + o_std ;
+    
+    float3 m = normalize( float3( m_std.xy * alpha , m_std.z ) );
+    
+    // Transform the normal back to the ellipsoid configuration. This is our half vector. From this we can compute reflection vector with reflect(-ViewVector, h);
+    return normalize( float3( m_std.xy * alpha , m_std.z ) );
 }
 
 /** Evaluates the Smith masking function (G1) for the GGX normal distribution.

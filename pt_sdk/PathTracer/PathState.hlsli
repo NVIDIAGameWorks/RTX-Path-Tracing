@@ -95,7 +95,6 @@ struct PathState
     // Scatter ray
     float3      origin;                 ///< Origin of the scatter ray.
     float3      dir;                    ///< Scatter ray normalized direction.
-    //float       pdf;                    ///< Pdf for generating the scatter ray.
     
     float       emissiveMISWeight;      ///< The BSDF MIS weight counterpart of NEE light sampling, computed after BSDF scatter when NEE active or just defaulting to 1.0 when NEE inactive
     float       environmentMISWeight;   ///< The BSDF MIS weight counterpart of NEE light sampling, computed after BSDF scatter when NEE active or just defaulting to 1.0 when NEE inactive
@@ -130,9 +129,9 @@ struct PathState
     bool isTerminated() { return !isActive(); }
     bool isActive() { return hasFlag(PathFlags::active); }
     bool isHit() { return hasFlag(PathFlags::hit); }
-    bool isTransmission() { return hasFlag(PathFlags::transmission); }
-    bool isSpecular() { return hasFlag(PathFlags::specular); }
-    bool isDelta() { return hasFlag(PathFlags::delta); }
+    bool wasScatterTransmission() { return hasFlag(PathFlags::transmission); }                      ///< Get flag indicating that last scatter ray went through a transmission event.
+    bool wasScatterSpecular() { return hasFlag(PathFlags::specular); }                              ///< Get flag indicating that last scatter ray went through a specular event.
+    bool wasScatterDelta() { return hasFlag(PathFlags::delta); }                                    ///< Get flag indicating that last scatter ray went through a delta event.
     bool isInsideDielectricVolume() { return hasFlag(PathFlags::insideDielectricVolume); }
 
     bool isDiffusePrimaryHit() { return hasFlag(PathFlags::diffusePrimaryHit); }
@@ -140,24 +139,21 @@ struct PathState
     bool isDeltaTransmissionPath() { return hasFlag(PathFlags::deltaTransmissionPath); }
     bool isDeltaOnlyPath() { return hasFlag(PathFlags::deltaOnlyPath); }
 
-    // Check if the scatter event is samplable by the light sampling technique.
-    bool isLightSamplable() { return !isDelta(); }
-
     void terminate() { setFlag(PathFlags::active, false); }
     void setActive() { setFlag(PathFlags::active); }
     //void setHit(HitInfo hitInfo) { hit = hitInfo; setFlag(PathFlags::hit); }
     void setHitPacked(PackedHitInfo hitInfoPacked) { hitPacked = hitInfoPacked; setFlag(PathFlags::hit); }
     void clearHit() { setFlag(PathFlags::hit, false); }
 
-    void clearEventFlags()
+    void clearScatterEventFlags()
     {
         const uint bits = ( ((uint)PathFlags::transmission) | ((uint)PathFlags::specular) | ((uint)PathFlags::delta) ) << kVertexIndexBitCount;
         flagsAndVertexIndex &= ~bits;
     }
 
-    void setTransmission(bool value = true) { setFlag(PathFlags::transmission, value); }
-    void setSpecular(bool value = true) { setFlag(PathFlags::specular, value); }
-    void setDelta(bool value = true) { setFlag(PathFlags::delta, value); }
+    void setScatterTransmission(bool value = true) { setFlag(PathFlags::transmission, value); }            ///< Set flag indicating that scatter ray went through a transmission event.
+    void setScatterSpecular(bool value = true) { setFlag(PathFlags::specular, value); }                    ///< Set flag indicating that scatter ray went through a specular event.
+    void setScatterDelta(bool value = true) { setFlag(PathFlags::delta, value); }                          ///< Set flag indicating that scatter ray went through a delta event.
     void setInsideDielectricVolume(bool value = true) { setFlag(PathFlags::insideDielectricVolume, value); }
     void setDiffusePrimaryHit(bool value = true) { setFlag(PathFlags::diffusePrimaryHit, value); }
     void setSpecularPrimaryHit(bool value = true) { setFlag(PathFlags::specularPrimaryHit, value); }

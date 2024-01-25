@@ -9,8 +9,7 @@
 */
 
 #include "RtxdiApplicationBridge.hlsli"
-
-#include "../../external/RTXDI/rtxdi-sdk/include/rtxdi/ResamplingFunctions.hlsli"
+#include <rtxdi/PresamplingFunctions.hlsli>
 
 [numthreads(RTXDI_PRESAMPLING_GROUP_SIZE, 1, 1)] 
 void main(uint2 GlobalIndex : SV_DispatchThreadID) 
@@ -24,6 +23,7 @@ void main(uint2 GlobalIndex : SV_DispatchThreadID)
         g_RtxdiBridgeConst.localLightPdfTextureSize,
         GlobalIndex.y,
         GlobalIndex.x,
-        g_RtxdiBridgeConst.runtimeParams);
+        g_RtxdiBridgeConst.lightBufferParams.localLightBufferRegion,
+        g_RtxdiBridgeConst.localLightsRISBufferSegmentParams);
 #endif
 }

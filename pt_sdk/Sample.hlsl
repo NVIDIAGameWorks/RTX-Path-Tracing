@@ -12,12 +12,6 @@
 
 #define PTSDK_COMPILE_WITH_NEE 1
 
-// *** *** *** *** *** Temporary RTXDI dependency on the path tracing side *** *** *** *** *** 
-// NOTE: path tracer is now dependent on RTXDI for local lighting - this dependency will be removed in the future
-#define PTSDK_RTXDI_RESOURCES_ONLY 1
-#include "RTXDI/RtxdiApplicationBridge.hlsli"
-// *** *** *** *** *** Temporary RTXDI dependency on the path tracing side *** *** *** *** *** 
-
 // HLSL extensions don't work on Vulkan, so just disable HitObject etc. for now
 #ifdef SPIRV
 #undef USE_HIT_OBJECT_EXTENSION
@@ -45,10 +39,12 @@
 #define SER_USE_SORTING 1
 #endif
 
-#include "PathTracerBridgeDonut.hlsli"
-#include "PathTracer/PathTracer.hlsli"
+#include "PathTracer/PathTracerTypes.hlsli"
 
 #include "ShaderResourceBindings.hlsli"
+
+#include "PathTracerBridgeDonut.hlsli"
+#include "PathTracer/PathTracer.hlsli"
 
 PathTracer::WorkingContext getWorkingContext(uint2 pixelPos)
 {
@@ -123,7 +119,7 @@ void firstHitFromBasePlane(inout PathState path, const uint basePlaneIndex, cons
             // HandleHitUbershader(...);
 
             PathPayload payload = PathPayload::pack(path);
-#if SER_USE_SORTING
+#if SER_USE_SORTING // NOTE: sorting here in the first bounce doesn't always generate benefit since rays are still pretty coherent
             if (workingContext.ptConsts.enableShaderExecutionReordering)  // there could be cost to this branch, although we haven't measured anything significant, and on/off is convenient for testing
 #if SER_USE_MANUAL_SORT_KEY
                 NvReorderThread(SERSortKey, 16); 
@@ -144,7 +140,7 @@ void firstHitFromBasePlane(inout PathState path, const uint basePlaneIndex, cons
         bool frontFacing = dot( -ray.Direction, surfaceHitFaceNormW ) >= 0.0;
 
         // ensure we'll hit the same triangle again (additional offset found empirially - it's still imperfect for glancing rays)
-        float3 newOrigin = computeRayOrigin(surfaceHitPosW, (frontFacing)?(surfaceHitFaceNormW):(-surfaceHitFaceNormW)) - ray.Direction * 8e-5;
+        float3 newOrigin = ComputeRayOrigin(surfaceHitPosW, (frontFacing)?(surfaceHitFaceNormW):(-surfaceHitFaceNormW)) - ray.Direction * 8e-5;
 
         // update path state as we'll skip everything up to the surface, thus we must account for the skip which is 'length(newOrigin-ray.Origin)'
         PathTracer::UpdatePathTravelled(path, ray.Origin, ray.Direction, length(newOrigin-ray.Origin), workingContext, false, false); // move path internal state by the unaccounted travel, but don't increment vertex index or update origin/rayDir
@@ -177,8 +173,10 @@ void nextHit(inout PathState path, const PathTracer::WorkingContext workingConte
         BuiltInTriangleIntersectionAttributes attrib;
         attrib.barycentrics = rayQuery.CommittedTriangleBarycentrics();
         NvMakeHitWithRecordIndex( rayQuery.CommittedInstanceContributionToHitGroupIndex()+rayQuery.CommittedGeometryIndex(), SceneBVH, rayQuery.CommittedInstanceIndex(), rayQuery.CommittedGeometryIndex(), rayQuery.CommittedPrimitiveIndex(), 0, ray, attrib, hit );
+        uint vertexIndex = path.getVertexIndex();
         PathPayload payload = PathPayload::pack(path);
 #if SER_USE_SORTING
+        // NOTE: only doing sorting when (vertexIndex > 0) seems to help perf but was not tested enough
         if (workingContext.ptConsts.enableShaderExecutionReordering)  // there could be cost to this branch, although we haven't measured anything significant, and on/off is convenient for testing
 #if SER_USE_MANUAL_SORT_KEY
             NvReorderThread(SERSortKey, 16);
