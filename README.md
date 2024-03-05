@@ -134,6 +134,20 @@ Many thanks to the developers of the following open-source libraries or projects
  * Krzysztof Narkowicz's Real-time BC6H compression on GPU (https://github.com/knarkowicz/GPURealTimeBC6H)
  * ...and any we might have forgotten (please let us know) :)
 
+## Citation
+If you use Path Tracing SDK in a research project leading to a publication, please cite the project.
+The BibTex entry is
+
+```bibtex
+@online{PTSDK,
+   title   = {{{NVIDIA}}\textregistered{} {Path Tracing SDK}},
+   author  = {{NVIDIA}},
+   year    = 2023,
+   url     = {https://github.com/NVIDIAGameWorks/Path-Tracing-SDK},
+   urldate = {2024-01-26},
+}
+```
+
 ## License
 
 See [LICENSE.txt](LICENSE.txt)
