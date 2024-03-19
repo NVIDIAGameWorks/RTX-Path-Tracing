@@ -1,11 +1,11 @@
-# Path Tracing SDK v1.3.0
+# RTX Path Tracing v1.3.0
 
 ![Title](./images/r-title.png)
 
 
 ## Overview
 
-Path Tracing SDK is a code sample that strives to embody years of ray tracing and neural graphics research and experience. It is intended as a starting point for a path tracer integration, as a reference for various integrated SDKs, and/or for learning and experimentation.
+RTX Path Tracing is a code sample that strives to embody years of ray tracing and neural graphics research and experience. It is intended as a starting point for a path tracer integration, as a reference for various integrated SDKs, and/or for learning and experimentation.
 
 The base path tracing implementation derives from NVIDIA’s [Falcor Research Path Tracer](https://github.com/NVIDIAGameWorks/Falcor), ported to approachable C++/HLSL [Donut framework](https://github.com/NVIDIAGameWorks/donut).
 
@@ -59,7 +59,7 @@ GTC presentation [How to Build a Real-time Path Tracer](https://www.nvidia.com/g
 | /external				| external libraries and SDKs, including NRD, RTXDI, and OMM
 | /media				| models, textures, scene files  
 | /tools				| optional command line tools (denoiser, texture compressor, etc)
-| /pt_sdk				| **Path Tracing SDK core; Sample.cpp/.h/.hlsl contain entry points**
+| /pt_sdk				| **RTX Path Tracing core; Sample.cpp/.h/.hlsl contain entry points**
 | /pt_sdk/PathTracer	| **Core path tracing shaders**
 
 
@@ -69,7 +69,7 @@ At the moment, only Windows builds are supported. We are going to add Linux supp
 
 1. Clone the repository **with all submodules recursively**:
    
-   `git clone --recursive https://github.com/NVIDIAGameWorks/Path-Tracing-SDK.git`
+   `git clone --recursive https://github.com/NVIDIAGameWorks/RTX-Path-Tracing.git`
 
 2. Use CMake to configure the build and generate the project files.
    
@@ -123,7 +123,7 @@ We are working on more detailed SDK developer documentation - watch this space!
 
 ## Contact
 
-Path Tracing SDK is under active development. Please report any issues directly through GitHub issue tracker, and for any information, suggestions or general requests please feel free to contact us at pathtracing-sdk-support@nvidia.com!
+RTX Path Tracing is under active development. Please report any issues directly through GitHub issue tracker, and for any information, suggestions or general requests please feel free to contact us at pathtracing-sdk-support@nvidia.com!
 
 ## Thanks
 
@@ -135,15 +135,15 @@ Many thanks to the developers of the following open-source libraries or projects
  * ...and any we might have forgotten (please let us know) :)
 
 ## Citation
-If you use Path Tracing SDK in a research project leading to a publication, please cite the project.
+If you use RTX Path Tracing in a research project leading to a publication, please cite the project.
 The BibTex entry is
 
 ```bibtex
 @online{PTSDK,
-   title   = {{{NVIDIA}}\textregistered{} {Path Tracing SDK}},
+   title   = {{{NVIDIA}}\textregistered{} {RTX Path Tracing}},
    author  = {{NVIDIA}},
    year    = 2023,
-   url     = {https://github.com/NVIDIAGameWorks/Path-Tracing-SDK},
+   url     = {https://github.com/NVIDIAGameWorks/RTX-Path-Tracing},
    urldate = {2024-01-26},
 }
 ```

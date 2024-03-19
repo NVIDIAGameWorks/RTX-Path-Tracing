@@ -45,7 +45,7 @@ using namespace donut::render;
 
 static const int c_SwapchainCount = 3;
 
-static const char* g_WindowTitle = "Path Tracing SDK v1.3.0";
+static const char* g_WindowTitle = "RTX Path Tracing v1.3.0";
 
 const float c_EnvMapRadianceScale = 1.0f / 4.0f; // used to make input 32bit float radiance fit into 16bit float range that baker supports; going lower than 1/4 causes issues with current BC6U compression algorithm when used
 
