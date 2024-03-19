@@ -761,7 +761,7 @@ struct FalcorBSDF // : IBxDF
         return lobes;
     }
 
-#if PTSDK_DIFFUSE_SPECULAR_SPLIT
+#if RTXPT_DIFFUSE_SPECULAR_SPLIT
     void eval(const float3 wi, const float3 wo, out float3 diffuse, out float3 specular)
     {
         diffuse = 0.f; specular = 0.f;

@@ -14,7 +14,7 @@ build-debug-job:
     - mkdir build_debug
     - cd build_debug
     - cmake .. -DCMAKE_BUILD_TYPE=Debug
-    - cmake --build . --target pt_sdk --config Debug
+    - cmake --build . --target RTXPT --config Debug
     - echo "Compile Debug complete."
 
 build-release-job:
@@ -27,5 +27,5 @@ build-release-job:
     - mkdir build_release
     - cd build_release
     - cmake .. -DCMAKE_BUILD_TYPE=Release
-    - cmake --build . --target pt_sdk --config Release
+    - cmake --build . --target RTXPT --config Release
     - echo "Compile Release complete."

@@ -44,7 +44,7 @@ struct StandardBSDF // : IBSDF
         return d;
     }
 
-#if PTSDK_DIFFUSE_SPECULAR_SPLIT
+#if RTXPT_DIFFUSE_SPECULAR_SPLIT
     void eval(const ShadingData shadingData, const float3 wo, out float3 diffuse, out float3 specular)
     {
         float3 wiLocal = shadingData.toLocal(shadingData.V);
@@ -63,7 +63,7 @@ struct StandardBSDF // : IBSDF
 
         FalcorBSDF bsdf = FalcorBSDF::make(shadingData, data);
 
-#if PTSDK_DIFFUSE_SPECULAR_SPLIT
+#if RTXPT_DIFFUSE_SPECULAR_SPLIT
         float3 diffuse, specular;
         bsdf.eval(wiLocal, woLocal/*, sampleGenerator*/, diffuse, specular);
         return diffuse+specular;
@@ -167,7 +167,7 @@ struct StandardBSDF // : IBSDF
         FalcorBSDF bsdf = FalcorBSDF::make(shadingData, data);
 
         result.wo = shadingData.fromLocal(woLocal);
-#if PTSDK_DIFFUSE_SPECULAR_SPLIT
+#if RTXPT_DIFFUSE_SPECULAR_SPLIT
         float3 diffuse, specular;
         bsdf.eval(wiLocal, woLocal/*, sampleGenerator*/, diffuse, specular);
         result.weight = (diffuse+specular) / result.pdf;

@@ -37,8 +37,6 @@
 
 #include "Lighting/Distant/EnvMapBaker.h"
 
-// should we use donut::pt_sdk for all our path tracing stuff?
-
 // can be upgraded for special normalmap type (i.e. DXGI_FORMAT_BC5_UNORM) or single channel masks (i.e. DXGI_FORMAT_BC4_UNORM)
 enum class TextureCompressionType
 {

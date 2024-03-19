@@ -146,7 +146,7 @@ namespace donut::engine
 
         bool doubleSided = false;
 
-        bool thinSurface = false;   // As per Falcor/pt_sdk convention, ray hitting a material with the thin surface is assumed to enter and leave surface in the same bounce and it makes most sense when used with doubleSided; it skips all volume logic.
+        bool thinSurface = false;   // As per Falcor/RTXPT convention, ray hitting a material with the thin surface is assumed to enter and leave surface in the same bounce and it makes most sense when used with doubleSided; it skips all volume logic.
 
         bool excludeFromNEE = false; // The mesh will not be part of NEE.
 

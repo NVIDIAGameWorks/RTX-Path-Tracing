@@ -34,7 +34,7 @@ namespace PathTracer
 #include "PathTracerNestedDielectrics.hlsli"
 #include "PathTracerStablePlanes.hlsli"
 
-#if defined(PTSDK_COMPILE_WITH_NEE) && PTSDK_COMPILE_WITH_NEE!=0
+#if defined(RTXPT_COMPILE_WITH_NEE) && RTXPT_COMPILE_WITH_NEE!=0
 #include "PathTracerNEE.hlsli"
 #endif
 
@@ -499,7 +499,7 @@ namespace PathTracer
 //            workingContext.debug.DrawDebugViz( float4( 1, 0, 0, 1 ) );
        
         // Compute NextEventEstimation a.k.a. direct light sampling!
-#if defined(PTSDK_COMPILE_WITH_NEE) && PTSDK_COMPILE_WITH_NEE!=0
+#if defined(RTXPT_COMPILE_WITH_NEE) && RTXPT_COMPILE_WITH_NEE!=0
         NEEResult neeResult = HandleNEE(optimizationHints, preScatterPath, scatterResult, shadingData, bsdf, sampleGenerator, workingContext); 
 #else
         NEEResult neeResult = NEEResult::empty(kUseEmissiveLights, kUseEnvLights);

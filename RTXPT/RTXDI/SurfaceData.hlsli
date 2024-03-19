@@ -103,7 +103,7 @@ struct PathTracerSurfaceData
         _data.specularTransmission = 0;
     }
 
-#if PTSDK_DIFFUSE_SPECULAR_SPLIT
+#if RTXPT_DIFFUSE_SPECULAR_SPLIT
 	void Eval(const float3 wo, out float3 diffuse, out float3 specular)
 	{
 		float3 wiLocal = _ToLocal(_V);
@@ -135,7 +135,7 @@ struct PathTracerSurfaceData
 
 		FalcorBSDF bsdf = FalcorBSDF::make(_mtl, _N, _V, _data);
 
-#if PTSDK_DIFFUSE_SPECULAR_SPLIT
+#if RTXPT_DIFFUSE_SPECULAR_SPLIT
 		float3 diffuse, specular;
 		bsdf.eval(wiLocal, woLocal/*, sampleGenerator*/, diffuse, specular);
 		return diffuse + specular;
@@ -203,7 +203,7 @@ struct PathTracerSurfaceData
 		FalcorBSDF bsdf = FalcorBSDF::make(_mtl, _N, _V, _data);
 
 		result.wo = _FromLocal(woLocal);
-#if PTSDK_DIFFUSE_SPECULAR_SPLIT
+#if RTXPT_DIFFUSE_SPECULAR_SPLIT
 		float3 diffuse, specular;
 		bsdf.eval(wiLocal, woLocal/*, sampleGenerator*/, diffuse, specular);
 		result.weight = (diffuse + specular) / result.pdf;

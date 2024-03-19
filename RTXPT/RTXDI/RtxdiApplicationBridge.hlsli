@@ -68,7 +68,7 @@ SamplerState s_EnvironmentSampler                           : register(s4 VK_DES
 
 #define RTXDI_ENVIRONMENT_MAP t_EnvironmentMap
 
-#if !defined(PTSDK_RTXDI_RESOURCES_ONLY)
+#if !defined(RTXPT_RTXDI_RESOURCES_ONLY)
 
 #include "PolymorphicLight.hlsli"
 
@@ -225,7 +225,7 @@ struct RAB_LightSample
 };
 
 typedef PolymorphicLightInfo RAB_LightInfo;
-// Using the PT_SDK Sample Generator
+// Using the RTXPT Sample Generator
 typedef SampleGenerator RAB_RandomSamplerState;
 
 
@@ -603,7 +603,7 @@ bool GetConservativeVisibility(RaytracingAccelerationStructure accelStruct, RayD
 // Traces an expensive visibility ray that considers all alpha tested and transparent geometry along the way.
 // Only used in FinalSampling so only supports USE_RAY_QUERY=1
 // Not a required bridge function.
-// Uses the PT_SDK Bridge alpha test
+// Uses the RTXPT Bridge alpha test
 bool GetFinalVisibility(RaytracingAccelerationStructure accelStruct, RayDesc ray)
 {
     const RayHitInfo res = TraceVisibilityRay(accelStruct, ray);
@@ -821,6 +821,6 @@ bool RAB_GetTemporalConservativeVisibility(RAB_Surface currentSurface, RAB_Surfa
 
 #endif // RTXDI_WITH_RESTIR_GI
 
-#endif // #if !defined(PTSDK_RTXDI_RESOURCES_ONLY)
+#endif // #if !defined(RTXPT_RTXDI_RESOURCES_ONLY)
 
 #endif // RTXDI_APPLICATION_BRIDGE_HLSLI

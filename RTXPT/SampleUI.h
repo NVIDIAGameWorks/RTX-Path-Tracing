@@ -38,8 +38,6 @@ using namespace donut::math;
 
 #include "NRD/NrdConfig.h"
 
-// should we use donut::pt_sdk for all our path tracing stuff?
-
 namespace donut::engine
 {
     class SceneGraphNode;
