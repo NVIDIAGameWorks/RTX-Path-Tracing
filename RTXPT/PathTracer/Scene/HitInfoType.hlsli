@@ -18,7 +18,7 @@ enum class HitType : uint32_t
     None                = 0,    ///< No hit.
     Triangle            = 1,    ///< Triangle hit.
     
-#if 0 // not enabled in PTSDK
+#if 0 // not enabled in RTXPT
     Volume              = 2,    ///< Volume hit.
 
     // The following hit types are only available if hit info compression is disabled.

@@ -23,7 +23,7 @@
 
 #define SCENE_GEOMETRY_TYPES ( (1u << GEOMETRY_TYPE_TRIANGLE_MESH) )
 
-// default defines from Falcor/PT_SDK test scene with some mods
+// default defines from Falcor/RTXPT test scene with some mods
 #define HIT_INFO_DEFINES                        1
 #define HIT_INFO_INSTANCE_ID_BITS               29      // was 5, could be less but let's max it out for now
 #define HIT_INFO_PRIMITIVE_INDEX_BITS           32      // was 11, could be less but let's max it out for now

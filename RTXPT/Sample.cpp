@@ -117,7 +117,7 @@ Sample::Sample( donut::app::DeviceManager * deviceManager, CommandLineOptions& c
     deviceManager->SetFrameTimeUpdateInterval(1.0f);
 
     std::filesystem::path frameworkShaderPath = app::GetDirectoryWithExecutable( ) / "shaders/framework" / app::GetShaderTypeName( GetDevice( )->getGraphicsAPI( ) );
-    std::filesystem::path appShaderPath = app::GetDirectoryWithExecutable() / "shaders/pt_sdk" / app::GetShaderTypeName(GetDevice()->getGraphicsAPI());
+    std::filesystem::path appShaderPath = app::GetDirectoryWithExecutable() / "shaders/RTXPT" / app::GetShaderTypeName(GetDevice()->getGraphicsAPI());
     std::filesystem::path nrdShaderPath = app::GetDirectoryWithExecutable() / "shaders/nrd" / app::GetShaderTypeName(GetDevice()->getGraphicsAPI());
     std::filesystem::path ommShaderPath = app::GetDirectoryWithExecutable( ) / "shaders/omm" / app::GetShaderTypeName( GetDevice( )->getGraphicsAPI( ) );
 

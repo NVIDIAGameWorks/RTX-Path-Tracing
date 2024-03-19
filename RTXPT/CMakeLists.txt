@@ -14,13 +14,13 @@ file(GLOB_RECURSE sources "*.cpp" "*.h" "*.md")
 file(GLOB NRD_INTEGRATION_HEADERS "../external/RayTracingDenoiser/Integration/*.h" "../external/RayTracingDenoiser/Integration/*.hpp")
 source_group("RayTracingDenoiser" FILES ${NRD_INTEGRATION_HEADERS})
 
-set(project pt_sdk)
+set(project RTXPT)
 set(folder "!RTX Path Tracing")
 
-set(pt_sdk_shaders ${project}_shaders)
+set(RTXPT_shaders ${project}_shaders)
 
 donut_compile_shaders(
-    TARGET pt_sdk_shaders
+    TARGET RTXPT_shaders
     CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders.cfg
     SOURCES ${shaders}
     FOLDER ${folder}
@@ -31,7 +31,7 @@ donut_compile_shaders(
 
 add_executable(${project} WIN32 ${sources})
 
-add_dependencies(${project} pt_sdk_shaders nrd_shaders omm_sdk_shaders)
+add_dependencies(${project} RTXPT_shaders nrd_shaders omm_sdk_shaders)
 
 if(STREAMLINE_INTEGRATION)
 set(SL_DLLS

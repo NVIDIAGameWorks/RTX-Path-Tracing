@@ -64,7 +64,7 @@ freely, subject to the following restrictions:
 #include <sstream>
 
 #ifdef STREAMLINE_INTEGRATION
-#include "../../../../pt_sdk/Streamline/SLWrapper.h"
+#include "../../../../RTXPT/Streamline/SLWrapper.h"
 #endif
 
 using nvrhi::RefCountPtr;

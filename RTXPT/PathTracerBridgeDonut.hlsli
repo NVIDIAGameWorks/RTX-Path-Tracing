@@ -371,7 +371,7 @@ PathTracer::SurfaceData Bridge::loadSurface(const uniform PathTracer::Optimizati
     DonutGeometrySample donutGS = getGeometryFromHit(instanceIndex, geometryIndex, triangleIndex, triangleHit.barycentrics, GeomAttr_TexCoord | GeomAttr_Position | GeomAttr_Normal | GeomAttr_Tangents | GeomAttr_PrevPosition,
         t_InstanceData, t_GeometryData, t_GeometryDebugData, t_MaterialConstants, rayDir, debug);
 
-    // Convert Donut to pt_sdk vertex data
+    // Convert Donut to RTXPT vertex data
     VertexData ptVertex;
     ptVertex.posW           = mul(donutGS.instance.transform, float4(donutGS.objectSpacePosition, 1.0)).xyz;
     float3 prevPosW             = mul(donutGS.instance.prevTransform, float4(donutGS.prevObjectSpacePosition, 1.0)).xyz;

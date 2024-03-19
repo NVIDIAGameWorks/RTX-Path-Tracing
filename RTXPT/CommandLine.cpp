@@ -26,7 +26,7 @@ bool CommandLineOptions::InitFromCommandLine(int _argc, char** _argv)
 
 		options.add_options()
 			("s,scene", "Preferred scene to load (.scene.json)", value(scene))
-			("nonInteractive", "Indicates that pt_sdk will start in non-interactive mode, disabling popups and windows that require input", value(nonInteractive))
+			("nonInteractive", "Indicates that RTXPT will start in non-interactive mode, disabling popups and windows that require input", value(nonInteractive))
 			("noWindow", "Start PT-SDK without a window. This mode is useful when generating screenshots from command line.", value(noWindow))
 			("noStreamline", "No streamline", value(noStreamline))
 			("d,debug", "Enables the D3D12/VK debug layer and NVRHI validation layer", value(debug))

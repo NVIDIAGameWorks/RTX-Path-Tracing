@@ -15,8 +15,8 @@
 #include "Microfacet.hlsli"
 #include "LobeType.hlsli"
 
-#ifndef PTSDK_DIFFUSE_SPECULAR_SPLIT
-#define PTSDK_DIFFUSE_SPECULAR_SPLIT 1
+#ifndef RTXPT_DIFFUSE_SPECULAR_SPLIT
+#define RTXPT_DIFFUSE_SPECULAR_SPLIT 1
 #endif
 
 static const uint       cMaxDeltaLobes      = 4;            // 3 should be enough (reflection, transmission, clearcoat reflection?) - but no harm allowing for one more

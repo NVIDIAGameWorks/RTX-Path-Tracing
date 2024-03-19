@@ -10,7 +10,7 @@
 
 #pragma pack_matrix(row_major)
 
-#define PTSDK_COMPILE_WITH_NEE 1
+#define RTXPT_COMPILE_WITH_NEE 1
 
 // HLSL extensions don't work on Vulkan, so just disable HitObject etc. for now
 #ifdef SPIRV

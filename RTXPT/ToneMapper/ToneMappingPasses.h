@@ -28,7 +28,7 @@ namespace donut::engine
 #error this must be defined
 #endif
 
-//namespace donut::render   // <- should we use donut::pt_sdk for all our path tracing stuff?
+//namespace donut::render   // <- should we use donut::RTXPT for all our path tracing stuff?
 //{
 	enum class ExposureMode : uint32_t
 	{

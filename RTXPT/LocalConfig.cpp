@@ -16,21 +16,21 @@
 
 void LocalConfig::PreferredSceneOverride(std::string& preferredScene)
 {
-    if (PTSDK_LOCAL_CONFIG_ID_STRING == "REF_VS_REALTIME" || PTSDK_LOCAL_CONFIG_ID_STRING == "REGIR")
+    if (RTXPT_LOCAL_CONFIG_ID_STRING == "REF_VS_REALTIME" || RTXPT_LOCAL_CONFIG_ID_STRING == "REGIR")
     {
 #if 0 // // test for making reference pixel-identical to realtime; test for playing with NEE use ReGIR only
         preferredScene = "kitchen-with-test-stuff.scene.json";
 #endif
     }
-    if (PTSDK_LOCAL_CONFIG_ID_STRING == "DENOISER_TUNING")
+    if (RTXPT_LOCAL_CONFIG_ID_STRING == "DENOISER_TUNING")
     {
         //preferredScene = "transparent-machines.scene.json";
     }
-    if (PTSDK_LOCAL_CONFIG_ID_STRING == "GENERIC_STABLE_LIGHTS")
+    if (RTXPT_LOCAL_CONFIG_ID_STRING == "GENERIC_STABLE_LIGHTS")
     {
         preferredScene = "convergence-test.scene.json";
     }
-    if (PTSDK_LOCAL_CONFIG_ID_STRING == "PROC_SKY_TESTING")
+    if (RTXPT_LOCAL_CONFIG_ID_STRING == "PROC_SKY_TESTING")
     {
         preferredScene = "programmer-art-proc-sky.scene.json";
     }
@@ -38,7 +38,7 @@ void LocalConfig::PreferredSceneOverride(std::string& preferredScene)
 
 void LocalConfig::PostAppInit(Sample& sample, SampleUIData& sampleUI)
 {
-    if (PTSDK_LOCAL_CONFIG_ID_STRING == "REF_VS_REALTIME")
+    if (RTXPT_LOCAL_CONFIG_ID_STRING == "REF_VS_REALTIME")
     {
 #if 0 // test for making reference pixel-identical to realtime
         sampleUI.AccumulationAA = false;
@@ -56,7 +56,7 @@ void LocalConfig::PostAppInit(Sample& sample, SampleUIData& sampleUI)
         //sampleUI.BounceCount = 1;
 #endif
     }
-    if (PTSDK_LOCAL_CONFIG_ID_STRING == "REGIR")
+    if (RTXPT_LOCAL_CONFIG_ID_STRING == "REGIR")
     {
 #if 1 // test for playing with NEE use ReGIR only
         sampleUI.AccumulationTarget = 256;
@@ -78,7 +78,7 @@ void LocalConfig::PostAppInit(Sample& sample, SampleUIData& sampleUI)
     //  * Stable Planes (set to 1) 
     // ...and increases brute force sampling - useful for denoiser tuning as it removes temporal issues and prevents stable planes from hiding issues.
     // Once denoiser works well, try enabling things one by one (and reducing NEE & global samples back to 1)
-    if (PTSDK_LOCAL_CONFIG_ID_STRING == "DENOISER_TUNING")
+    if (RTXPT_LOCAL_CONFIG_ID_STRING == "DENOISER_TUNING")
     {
         sampleUI.RealtimeMode = true;
         sampleUI.UseReSTIRDI = false;           // avoid any temporal issues from DI
@@ -92,7 +92,7 @@ void LocalConfig::PostAppInit(Sample& sample, SampleUIData& sampleUI)
         sampleUI.RealtimeAA = 1;
     }
 
-    if (PTSDK_LOCAL_CONFIG_ID_STRING == "ENVMAP_TUNING")
+    if (RTXPT_LOCAL_CONFIG_ID_STRING == "ENVMAP_TUNING")
     {
         sampleUI.AccumulationTarget = 256;
         sampleUI.RealtimeMode = false;
@@ -112,7 +112,7 @@ void LocalConfig::PostAppInit(Sample& sample, SampleUIData& sampleUI)
         }
     }
 
-    if (PTSDK_LOCAL_CONFIG_ID_STRING == "GENERIC_STABLE_LIGHTS")
+    if (RTXPT_LOCAL_CONFIG_ID_STRING == "GENERIC_STABLE_LIGHTS")
     {
         sampleUI.AccumulationTarget = 4096;
         sampleUI.RealtimeMode = false;
@@ -144,7 +144,7 @@ void LocalConfig::PostMaterialLoad(donut::engine::Material& mat)
     if (mat.domain == MaterialDomain::TransmissiveAlphaTested)  mat.domain = MaterialDomain::AlphaTested;
 #endif
 #if 1 // disable emissive lights
-    if (PTSDK_LOCAL_CONFIG_ID_STRING == "ENVMAP_TUNING")
+    if (RTXPT_LOCAL_CONFIG_ID_STRING == "ENVMAP_TUNING")
         mat.emissiveIntensity = 0.0f;
 #endif
 }

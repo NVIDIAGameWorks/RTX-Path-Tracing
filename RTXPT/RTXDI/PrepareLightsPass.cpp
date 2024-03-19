@@ -248,7 +248,7 @@ static bool ConvertLight(const donut::engine::Light& light, PolymorphicLightInfo
 	case LightType_Spot: {
 		auto& spot = static_cast<const SpotLight&>(light);
 
-        // Sphere lights not supported in the PTSDK currently
+        // Sphere lights not supported in the RTXPT currently
         if (spot.radius == 0.f)
         {
 			float3 flux = spot.color * spot.intensity;

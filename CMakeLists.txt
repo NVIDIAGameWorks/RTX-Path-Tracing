@@ -9,7 +9,7 @@
 
 cmake_minimum_required(VERSION 3.10)
 
-project(PathTracingSDK)
+project(RTXPathTracing)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,8 +17,8 @@ set(CMAKE_CXX_EXTENSIONS ON)
 
 set (CMAKE_CONFIGURATION_TYPES "Debug;Release" CACHE STRING "" FORCE)
 
-set(PTSDK_LOCAL_CONFIG_ID "NONAME" CACHE STRING "Local user initials for user-specific settings")
-add_definitions( -DPTSDK_LOCAL_CONFIG_ID_STRING=std::string\(\"${PTSDK_LOCAL_CONFIG_ID}\"\) )
+set(RTXPT_LOCAL_CONFIG_ID "NONAME" CACHE STRING "Local user initials for user-specific settings")
+add_definitions( -DRTXPT_LOCAL_CONFIG_ID_STRING=std::string\(\"${RTXPT_LOCAL_CONFIG_ID}\"\) )
 
 #if (NOT EXISTS "${CMAKE_SOURCE_DIR}/external/NVAPI" OR NOT EXISTS "${CMAKE_SOURCE_DIR}/media")
 #    message(FATAL_ERROR "${CMAKE_SOURCE_DIR}/external/NVAPI and/or ${CMAKE_SOURCE_DIR}/media folders not present: \n!!!! please run update_dependencies.bat first !!!! ")
@@ -52,8 +52,8 @@ set(DONUT_SHADERS_OUTPUT_DIR "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/framewor
 add_subdirectory(donut)
 
 if (NVRHI_WITH_VULKAN OR NVRHI_WITH_DX12)
-	add_subdirectory(pt_sdk)
-	set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT pt_sdk)
+	add_subdirectory(RTXPT)
+	set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT RTXPT)
 endif()
 
 add_subdirectory("external")

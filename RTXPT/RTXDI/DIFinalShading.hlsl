@@ -69,7 +69,7 @@ bool ReSTIRDIFinalContribution(const uint2 reservoirPos, const uint2 pixelPos, c
     if (getFinalSample(reservoirPos, surface, ls.Li, ls.Direction, ls.Distance))
     {
         // Apply sample shading
-#if PTSDK_DIFFUSE_SPECULAR_SPLIT
+#if RTXPT_DIFFUSE_SPECULAR_SPLIT
     float3 bsdfThpDiff, bsdfThpSpec;
     surface.Eval(ls.Direction, bsdfThpDiff, bsdfThpSpec);
     float3 bsdfThp = bsdfThpDiff + bsdfThpSpec;

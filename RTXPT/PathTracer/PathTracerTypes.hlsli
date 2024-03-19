@@ -171,11 +171,11 @@ namespace PathTracer
     {
         bool    Valid;
         
-#if PTSDK_DIFFUSE_SPECULAR_SPLIT
+#if RTXPT_DIFFUSE_SPECULAR_SPLIT
         float3  DiffuseRadiance;
         float3  SpecularRadiance;
 #else
-    #error current denoiser requires PTSDK_DIFFUSE_SPECULAR_SPLIT
+    #error current denoiser requires RTXPT_DIFFUSE_SPECULAR_SPLIT
 #endif
         float   RadianceSourceDistance;         // consider splitting into specular and diffuse
         float   ScatterEmissiveMISWeight;       // MIS weight computed for scatter counterpart (packed to fp16 in path payload) - this is a placeholder for now, it might actually be converted to hold pdf of emissive sample for later computation on surface

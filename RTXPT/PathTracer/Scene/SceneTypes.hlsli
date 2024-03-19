@@ -21,7 +21,7 @@
 #include "../Utils/Math/PackedFormats.hlsli"
 #endif
 
-// pt_sdk<->donut mod - this is really engine dependent so keep as 2 separate uint-s for now for simplicity
+// RTXPT<->donut mod - this is really engine dependent so keep as 2 separate uint-s for now for simplicity
 struct GeometryInstanceID
 {
     uint data;
