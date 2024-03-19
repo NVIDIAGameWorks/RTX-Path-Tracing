@@ -15,7 +15,7 @@ file(GLOB NRD_INTEGRATION_HEADERS "../external/RayTracingDenoiser/Integration/*.
 source_group("RayTracingDenoiser" FILES ${NRD_INTEGRATION_HEADERS})
 
 set(project pt_sdk)
-set(folder "!Path Tracing SDK")
+set(folder "!RTX Path Tracing")
 
 set(pt_sdk_shaders ${project}_shaders)
 

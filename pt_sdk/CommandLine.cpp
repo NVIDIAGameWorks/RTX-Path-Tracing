@@ -20,7 +20,7 @@ bool CommandLineOptions::InitFromCommandLine(int _argc, char** _argv)
 	try
 	{
 		std::filesystem::path exe_path = _argv[0];
-		Options options(exe_path.filename().string(), "Path Tracing SDK is a code sample that strives to embody years of ray tracing and neural graphics research and experience. It is intended as a starting point for a path tracer integration, as a reference for various integrated SDKs, and/or for learning and experimentation.");
+		Options options(exe_path.filename().string(), "RTX Path Tracing is a code sample that strives to embody years of ray tracing and neural graphics research and experience. It is intended as a starting point for a path tracer integration, as a reference for various integrated SDKs, and/or for learning and experimentation.");
 
 		bool help = false;
 
